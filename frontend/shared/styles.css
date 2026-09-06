@@ -79,9 +79,17 @@ body {
 .tab-btn { flex: 1; text-align: center; padding: 0.6rem 0; font-size: 0.8rem; white-space: nowrap; padding-left: 1rem; padding-right: 1rem; }
 .tab-btn.active { color: var(--kudde-blue); font-weight: 600; border-bottom: 3px solid var(--kudde-blue); }
 
+/* pointer-events: none is load-bearing, not decoration. The toast is
+   always in the DOM - it only fades to opacity 0 - so without this it
+   sits there invisibly swallowing every click in a band across the
+   screen. On the admin herd table that lands squarely on the rows, and
+   the symptom is a row that simply doesn't open, intermittently, with
+   nothing on screen to explain why. The ptr-indicator above already
+   does this for the same reason. */
 .toast {
   position: fixed; bottom: 5rem; left: 50%; transform: translateX(-50%);
   background: #111827; color: white; padding: 0.6rem 1.2rem; border-radius: 999px;
   font-size: 0.9rem; z-index: 50; opacity: 0; transition: opacity 0.2s;
+  pointer-events: none;
 }
 .toast.show { opacity: 1; }

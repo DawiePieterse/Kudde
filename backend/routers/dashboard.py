@@ -22,9 +22,20 @@ def dashboard(session: Session = Depends(get_session)):
     ).all())
     herd_counts = {status.value: counts.get(status, 0) for status in AnimalStatus}
 
-    recent_events = session.exec(
-        select(Event).order_by(Event.event_date.desc(), Event.id.desc()).limit(10)
+    # Joined to the animal rather than returning bare events: an activity
+    # feed that says "death - 9/6/2026" without naming the animal is close
+    # to useless to whoever is reading it, and the alternative is the admin
+    # app making a lookup request per row.
+    recent_rows = session.exec(
+        select(Event, Animal.tag, Animal.name)
+        .join(Animal, Animal.id == Event.animal_id)
+        .order_by(Event.event_date.desc(), Event.id.desc())
+        .limit(10)
     ).all()
+    recent_events = [
+        {**event.model_dump(), "tag": tag, "name": name}
+        for event, tag, name in recent_rows
+    ]
 
     cutoff = date.today() - timedelta(days=_STALE_WEIGHT_DAYS)
     last_weighed = dict(session.exec(

@@ -65,7 +65,10 @@ function renderDashboard() {
     ? dashboard.recent_events.map((e) => `
         <div class="flex items-center gap-2 py-1 border-b border-slate-100 last:border-0">
           <i class="fa-solid ${EVENT_ICON[e.kind] || "fa-circle"} event-icon-${e.kind} w-4"></i>
-          <div class="flex-1">${e.kind}${e.value != null ? ` - ${e.value}kg` : ""}${e.location ? ` - ${escapeHtml(e.location)}` : ""}</div>
+          <div class="flex-1">
+            <span class="font-semibold">${escapeHtml(e.tag)}</span>${e.name ? ` ${escapeHtml(e.name)}` : ""}
+            <span class="text-slate-500">- ${e.kind}${e.value != null ? ` ${e.value}kg` : ""}${e.location ? `${e.kind === "movement" ? " to " : " in "}${escapeHtml(e.location)}` : ""}</span>
+          </div>
           <div class="text-xs text-slate-400">${Kudde.fmtDate(e.event_date)}</div>
         </div>`).join("")
     : `<div class="text-slate-400">No activity yet</div>`;

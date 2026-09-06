@@ -105,14 +105,15 @@
       <span id="detailStatusPill" class="text-xs font-semibold px-2 py-1 rounded-full"></span>
     </div>
 
-    <div class="grid grid-cols-3 gap-2 mb-3">
+    <div class="grid grid-cols-3 gap-2 mb-2">
       <button class="action-btn" data-kind="weight"><i class="fa-solid fa-weight-scale event-icon-weight"></i>Weight</button>
       <button class="action-btn" data-kind="treatment"><i class="fa-solid fa-syringe event-icon-treatment"></i>Treatment</button>
       <button class="action-btn" data-kind="movement"><i class="fa-solid fa-arrows-turn-right event-icon-movement"></i>Move</button>
+      <button class="action-btn" data-kind="birth"><i class="fa-solid fa-baby event-icon-birth"></i>Birth</button>
       <button class="action-btn" data-kind="sale"><i class="fa-solid fa-hand-holding-dollar event-icon-sale"></i>Sale</button>
       <button class="action-btn" data-kind="death"><i class="fa-solid fa-skull event-icon-death"></i>Death</button>
-      <button id="closeDetailBtn" class="action-btn"><i class="fa-solid fa-xmark"></i>Close</button>
     </div>
+    <button id="closeDetailBtn" class="w-full rounded-lg py-2 bg-slate-100 mb-3">Close</button>
 
     <div class="text-sm font-semibold text-slate-500 mb-2">History</div>
     <div id="detailEvents" class="space-y-1 text-sm max-h-56 overflow-y-auto"></div>

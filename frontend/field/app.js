@@ -8,6 +8,10 @@ const EVENT_FIELD_CONFIG = {
   weight: { title: "Record weight", showValue: true, valueLabel: "Weight (kg)", showLocation: false },
   treatment: { title: "Record treatment", showValue: false, showLocation: false },
   movement: { title: "Record movement", showValue: false, showLocation: true },
+  // Birth carries a location (which camp it was born in) and leans on the
+  // note for what actually matters afterwards - calving ease, whether it
+  // had to be pulled, whether cow and calf are up and sucking.
+  birth: { title: "Record birth", showValue: false, showLocation: true },
   sale: { title: "Record sale", showValue: false, showLocation: false },
   death: { title: "Record death", showValue: false, showLocation: false },
 };
