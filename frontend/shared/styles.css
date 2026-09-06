@@ -1,0 +1,84 @@
+:root {
+  --kudde-blue: #0A2F6B;
+  --kudde-red: #C8102E;
+  --kudde-green: #16a34a;
+  --kudde-amber: #eab308;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* Keep the browser's native pull-to-refresh out of the way of KWPTR's. */
+  overscroll-behavior-y: contain;
+}
+
+/* Offline banner injected by Kudde.offlineBanner() (shared/api.js). */
+.offline-banner {
+  background: #fef3c7;
+  color: #92400e;
+  border-bottom: 1px solid #fcd34d;
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+}
+.offline-banner.hidden { display: none; }
+
+/* Pull-to-refresh indicator (shared/ptr.js). */
+.ptr-indicator {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -56px);
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--kudde-blue);
+  font-size: 1.1rem;
+  z-index: 60;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.ptr-indicator.ready { color: var(--kudde-green); }
+.ptr-indicator.spinning i { animation: ptr-spin 0.8s linear infinite; }
+@keyframes ptr-spin { to { transform: rotate(360deg); } }
+
+.kudde-header { background: var(--kudde-blue); color: white; }
+.kudde-btn-primary { background: var(--kudde-blue); color: white; }
+.kudde-btn-primary:active { opacity: 0.85; }
+.kudde-btn-danger { background: var(--kudde-red); color: white; }
+.kudde-btn-primary:disabled, .kudde-btn-danger:disabled { opacity: 0.5; }
+
+.status-pill-alive { background-color: #dcfce7; color: #166534; }
+.status-pill-dead { background-color: #fee2e2; color: #991b1b; }
+.status-pill-sold { background-color: #fef9c3; color: #854d0e; }
+
+.event-icon-birth { color: var(--kudde-green); }
+.event-icon-weight { color: var(--kudde-blue); }
+.event-icon-treatment { color: var(--kudde-red); }
+.event-icon-movement { color: var(--kudde-amber); }
+.event-icon-death { color: #64748b; }
+.event-icon-sale { color: var(--kudde-amber); }
+
+.action-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0.35rem;
+  padding: 0.9rem 0.25rem;
+  border-radius: 0.9rem;
+  background: white;
+  border: 1px solid #e2e8f0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #334155;
+}
+.action-btn:active { background: #f1f5f9; }
+.action-btn i { font-size: 1.4rem; }
+
+.toast {
+  position: fixed; bottom: 5rem; left: 50%; transform: translateX(-50%);
+  background: #111827; color: white; padding: 0.6rem 1.2rem; border-radius: 999px;
+  font-size: 0.9rem; z-index: 50; opacity: 0; transition: opacity 0.2s;
+}
+.toast.show { opacity: 1; }

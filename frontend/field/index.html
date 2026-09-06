@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Kudde Field</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Kudde">
+<meta name="theme-color" content="#0A2F6B">
+<script src="../shared/tailwind.js"></script>
+<link rel="stylesheet" href="../shared/vendor/fontawesome/css/all.min.css">
+<link rel="stylesheet" href="../shared/styles.css">
+<script src="../shared/api.js"></script>
+<script src="../shared/ptr.js"></script>
+<script src="idb.js"></script>
+</head>
+<body class="bg-slate-100 min-h-screen pb-6">
+
+<div class="kudde-header p-3">
+  <div class="flex items-center justify-between">
+    <div>
+      <div class="font-bold text-lg">Kudde</div>
+      <div class="text-xs opacity-80">Field</div>
+    </div>
+    <div class="text-right text-xs">
+      <div id="syncStatus" class="px-2 py-1 rounded-full bg-white/20">checking...</div>
+      <div id="appVersion" class="opacity-60 mt-1"></div>
+    </div>
+  </div>
+</div>
+
+<div class="p-3 max-w-md mx-auto space-y-3">
+
+  <!-- Search / lookup -->
+  <div class="bg-white rounded-xl p-3 shadow space-y-2">
+    <input id="searchInput" type="text" inputmode="search" placeholder="Search by tag or name"
+           class="w-full border border-slate-300 rounded-lg p-3 text-lg">
+    <button id="addAnimalBtn" class="w-full kudde-btn-primary rounded-xl py-3 text-lg font-bold flex items-center justify-center gap-2">
+      <i class="fa-solid fa-plus"></i> Add animal
+    </button>
+  </div>
+
+  <!-- Herd summary -->
+  <div class="bg-white rounded-xl p-3 shadow flex justify-around text-center">
+    <div>
+      <div class="text-2xl font-bold" id="countAlive">0</div>
+      <div class="text-xs text-slate-500">Alive</div>
+    </div>
+    <div>
+      <div class="text-2xl font-bold" id="countNeedsWeighing">0</div>
+      <div class="text-xs text-slate-500">Need weighing</div>
+    </div>
+  </div>
+
+  <!-- Animal list -->
+  <div id="animalList" class="space-y-2"></div>
+  <div id="emptyState" class="hidden text-center text-slate-400 text-sm py-6">No animals yet</div>
+</div>
+
+<!-- Add animal modal -->
+<div id="addAnimalModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-40 overflow-y-auto">
+  <div class="bg-white rounded-xl p-5 w-full max-w-sm my-6">
+    <div class="font-bold text-lg mb-3">Add animal</div>
+    <label class="text-xs text-slate-500">Tag number *</label>
+    <input id="newTag" type="text" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2" autocomplete="off">
+    <label class="text-xs text-slate-500">Name</label>
+    <input id="newName" type="text" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+    <label class="text-xs text-slate-500">Sex *</label>
+    <select id="newSex" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+      <option value="female">Female</option>
+      <option value="male">Male</option>
+    </select>
+    <label class="text-xs text-slate-500">Breed</label>
+    <input id="newBreed" type="text" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+    <label class="text-xs text-slate-500">Birth date</label>
+    <input id="newBirthDate" type="date" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+    <div class="grid grid-cols-2 gap-2 mb-2">
+      <div>
+        <label class="text-xs text-slate-500">Sire tag</label>
+        <input id="newSireTag" type="text" class="w-full border border-slate-300 rounded-lg p-3 text-lg">
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Dam tag</label>
+        <input id="newDamTag" type="text" class="w-full border border-slate-300 rounded-lg p-3 text-lg">
+      </div>
+    </div>
+    <div class="flex gap-2 mt-3">
+      <button id="cancelAddAnimalBtn" class="flex-1 rounded-lg py-3 bg-slate-100">Cancel</button>
+      <button id="confirmAddAnimalBtn" class="flex-1 kudde-btn-primary rounded-lg py-3 font-semibold">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Animal detail modal -->
+<div id="animalDetailModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-40 overflow-y-auto">
+  <div class="bg-white rounded-xl p-5 w-full max-w-sm my-6">
+    <div class="flex items-start justify-between mb-3">
+      <div>
+        <div class="font-bold text-xl" id="detailTag"></div>
+        <div class="text-slate-500 text-sm" id="detailSub"></div>
+      </div>
+      <span id="detailStatusPill" class="text-xs font-semibold px-2 py-1 rounded-full"></span>
+    </div>
+
+    <div class="grid grid-cols-3 gap-2 mb-3">
+      <button class="action-btn" data-kind="weight"><i class="fa-solid fa-weight-scale event-icon-weight"></i>Weight</button>
+      <button class="action-btn" data-kind="treatment"><i class="fa-solid fa-syringe event-icon-treatment"></i>Treatment</button>
+      <button class="action-btn" data-kind="movement"><i class="fa-solid fa-arrows-turn-right event-icon-movement"></i>Move</button>
+      <button class="action-btn" data-kind="sale"><i class="fa-solid fa-hand-holding-dollar event-icon-sale"></i>Sale</button>
+      <button class="action-btn" data-kind="death"><i class="fa-solid fa-skull event-icon-death"></i>Death</button>
+      <button id="closeDetailBtn" class="action-btn"><i class="fa-solid fa-xmark"></i>Close</button>
+    </div>
+
+    <div class="text-sm font-semibold text-slate-500 mb-2">History</div>
+    <div id="detailEvents" class="space-y-1 text-sm max-h-56 overflow-y-auto"></div>
+  </div>
+</div>
+
+<!-- Record event modal -->
+<div id="eventModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-50 overflow-y-auto">
+  <div class="bg-white rounded-xl p-5 w-full max-w-sm my-6">
+    <div class="font-bold text-lg mb-3" id="eventModalTitle">Record event</div>
+    <label class="text-xs text-slate-500">Date *</label>
+    <input id="eventDate" type="date" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+    <div id="eventValueRow" class="hidden">
+      <label class="text-xs text-slate-500" id="eventValueLabel">Weight (kg)</label>
+      <input id="eventValue" type="number" inputmode="decimal" step="0.1"
+             class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+    </div>
+    <div id="eventLocationRow" class="hidden">
+      <label class="text-xs text-slate-500">Camp / location</label>
+      <input id="eventLocation" type="text" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+    </div>
+    <label class="text-xs text-slate-500">Note</label>
+    <textarea id="eventNote" rows="2" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2"></textarea>
+    <div class="flex gap-2 mt-3">
+      <button id="cancelEventBtn" class="flex-1 rounded-lg py-3 bg-slate-100">Cancel</button>
+      <button id="confirmEventBtn" class="flex-1 kudde-btn-primary rounded-lg py-3 font-semibold">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
