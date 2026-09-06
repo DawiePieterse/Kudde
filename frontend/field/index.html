@@ -120,6 +120,15 @@
     </div>
     <button id="closeDetailBtn" class="w-full rounded-lg py-2 bg-slate-100 mb-3">Close</button>
 
+    <div class="flex items-center justify-between mb-2">
+      <div class="text-sm font-semibold text-slate-500">Photos</div>
+      <button id="takePhotoBtn" class="text-xs kudde-btn-primary rounded-full px-3 py-1.5 font-semibold">
+        <i class="fa-solid fa-camera"></i> Take photo
+      </button>
+    </div>
+    <div id="detailPhotos" class="flex gap-2 overflow-x-auto pb-1 mb-3"></div>
+    <input id="photoInput" type="file" accept="image/*" capture="environment" class="hidden">
+
     <div class="text-sm font-semibold text-slate-500 mb-2">History</div>
     <div id="detailEvents" class="space-y-1 text-sm max-h-56 overflow-y-auto"></div>
   </div>

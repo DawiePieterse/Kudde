@@ -178,6 +178,8 @@ async function openAnimalDetail(tag) {
   document.getElementById("animalDetailModal").classList.remove("hidden");
   document.getElementById("animalDetailModal").classList.add("flex");
 
+  await renderAnimalPhotos();
+
   try {
     const events = await Kudde.api(`/api/animals/${encodeURIComponent(tag)}/events`);
     Kudde.setOffline(false);
@@ -198,6 +200,61 @@ async function openAnimalDetail(tag) {
     Kudde.setOffline(true);
     eventsEl.innerHTML = `<div class="text-slate-400">Offline - history unavailable</div>`;
   }
+}
+
+async function renderAnimalPhotos() {
+  const el = document.getElementById("detailPhotos");
+  el.innerHTML = `<div class="text-slate-400 text-sm">Loading...</div>`;
+  try {
+    const photos = await Kudde.api(`/api/animals/${encodeURIComponent(activeTag)}/photos`);
+    Kudde.setOffline(false);
+    el.innerHTML = photos.length ? "" : `<div class="text-slate-400 text-sm">No photos yet</div>`;
+    for (const p of photos) {
+      const thumb = document.createElement("div");
+      thumb.className = "relative shrink-0";
+      thumb.innerHTML = `
+        <img src="${p.url}" class="w-20 h-20 object-cover rounded-lg border border-slate-200 cursor-pointer">
+        <button class="delete-photo-btn absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-black/60 text-white text-xs flex items-center justify-center" data-id="${p.id}">
+          <i class="fa-solid fa-xmark"></i>
+        </button>`;
+      thumb.querySelector("img").addEventListener("click", () => window.open(p.url, "_blank"));
+      thumb.querySelector(".delete-photo-btn").addEventListener("click", () => deleteAnimalPhoto(p.id));
+      el.appendChild(thumb);
+    }
+  } catch (e) {
+    if (!Kudde.isNetworkError(e)) throw e;
+    Kudde.setOffline(true);
+    el.innerHTML = `<div class="text-slate-400 text-sm">Offline - photos unavailable</div>`;
+  }
+}
+
+async function deleteAnimalPhoto(id) {
+  try {
+    await Kudde.api(`/api/photos/${id}`, { method: "DELETE" });
+    Kudde.setOffline(false);
+  } catch (e) {
+    if (!Kudde.isNetworkError(e)) { Kudde.toast(Kudde.errorDetail(e)); return; }
+    Kudde.setOffline(true);
+    Kudde.toast("Offline - can't delete a photo right now");
+    return;
+  }
+  await renderAnimalPhotos();
+}
+
+async function uploadAnimalPhoto(tag, file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  try {
+    await Kudde.apiUpload(`/api/animals/${encodeURIComponent(tag)}/photos`, formData);
+    Kudde.setOffline(false);
+    Kudde.toast("Photo saved");
+  } catch (e) {
+    if (!Kudde.isNetworkError(e)) { Kudde.toast(Kudde.errorDetail(e)); return; }
+    Kudde.setOffline(true);
+    await IDB.enqueue({ uuid: uuid(), kind: "photo", payload: { tag, blob: file, type: file.type } });
+    Kudde.toast("Saved on this device - will sync when online");
+  }
+  if (activeTag === tag) await renderAnimalPhotos();
 }
 
 function closeAnimalDetail() {
@@ -442,6 +499,10 @@ async function trySync() {
           await Kudde.api("/api/events", { method: "POST", body: entry.payload });
         } else if (entry.kind === "bulk_movement") {
           await Kudde.api("/api/events/movement/bulk", { method: "POST", body: entry.payload });
+        } else if (entry.kind === "photo") {
+          const formData = new FormData();
+          formData.append("file", entry.payload.blob, `photo.${(entry.payload.type || "image/jpeg").split("/")[1] || "jpg"}`);
+          await Kudde.apiUpload(`/api/animals/${encodeURIComponent(entry.payload.tag)}/photos`, formData);
         }
         await IDB.markSynced(entry.uuid);
       } catch (e) {
@@ -461,6 +522,9 @@ async function trySync() {
     updateSyncStatusPill((await IDB.getPending()).length);
     await loadAnimals();
     await loadDashboard();
+    if (activeTag && document.getElementById("animalDetailModal").classList.contains("flex")) {
+      await renderAnimalPhotos();
+    }
   } finally {
     syncBusy = false;
   }
@@ -489,6 +553,15 @@ async function init() {
 
   document.querySelectorAll("#animalDetailModal .action-btn[data-kind]").forEach((btn) => {
     btn.addEventListener("click", () => openEventModal(btn.dataset.kind));
+  });
+
+  document.getElementById("takePhotoBtn").addEventListener("click", () => {
+    document.getElementById("photoInput").click();
+  });
+  document.getElementById("photoInput").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = ""; // so choosing the same file again still fires "change"
+    if (file && activeTag) await uploadAnimalPhoto(activeTag, file);
   });
 
   KWPTR.attach(async () => { await loadAnimals(); await loadDashboard(); await trySync(); });

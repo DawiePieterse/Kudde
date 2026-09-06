@@ -102,3 +102,14 @@ class Farm(SQLModel, table=True):
     gps_lat: Optional[float] = None
     gps_lng: Optional[float] = None
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class AnimalPhoto(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    animal_id: int = Field(foreign_key="animal.id", index=True)
+    # Name of the file on disk under PHOTOS_DIR/<animal_id>/ - a fresh uuid,
+    # not the phone's original filename, so two photos can never collide.
+    filename: str
+    content_type: str = "image/jpeg"
+    caption: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)

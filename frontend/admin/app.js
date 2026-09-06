@@ -175,6 +175,7 @@ function openAddAnimal() {
   fillForm(null);
   document.getElementById("animalModalTitle").textContent = "Add animal";
   document.getElementById("animalModalStatusPill").classList.add("hidden");
+  document.getElementById("animalPhotosSection").classList.add("hidden");
   document.getElementById("animalEventsSection").classList.add("hidden");
   showAnimalModal();
 }
@@ -188,10 +189,56 @@ async function openEditAnimal(tag) {
   const pill = document.getElementById("animalModalStatusPill");
   pill.textContent = STATUS_LABEL[animal.status];
   pill.className = `text-xs font-semibold px-2 py-1 rounded-full status-pill-${animal.status}`;
+  document.getElementById("animalPhotosSection").classList.remove("hidden");
   document.getElementById("animalEventsSection").classList.remove("hidden");
   document.getElementById("newEventDate").value = Kudde.localDateStr();
   showAnimalModal();
+  await refreshPhotosList();
   await refreshEventsList();
+}
+
+async function refreshPhotosList() {
+  const el = document.getElementById("animalPhotosList");
+  el.innerHTML = `<div class="text-slate-400 text-sm">Loading...</div>`;
+  try {
+    const photos = await Kudde.api(`/api/animals/${encodeURIComponent(editingTag)}/photos`);
+    el.innerHTML = photos.length ? "" : `<div class="text-slate-400 text-sm">No photos yet</div>`;
+    for (const p of photos) {
+      const thumb = document.createElement("div");
+      thumb.className = "relative shrink-0";
+      thumb.innerHTML = `
+        <img src="${p.url}" class="w-20 h-20 object-cover rounded-lg border border-slate-200 cursor-pointer">
+        <button class="delete-photo-btn absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-black/60 text-white text-xs flex items-center justify-center" data-id="${p.id}">
+          <i class="fa-solid fa-xmark"></i>
+        </button>`;
+      thumb.querySelector("img").addEventListener("click", () => window.open(p.url, "_blank"));
+      thumb.querySelector(".delete-photo-btn").addEventListener("click", async () => {
+        try {
+          await Kudde.api(`/api/photos/${p.id}`, { method: "DELETE" });
+        } catch (e) {
+          Kudde.toast(Kudde.errorDetail(e));
+          return;
+        }
+        await refreshPhotosList();
+      });
+      el.appendChild(thumb);
+    }
+  } catch (e) {
+    el.innerHTML = `<div class="text-slate-400 text-sm">${Kudde.errorDetail(e, "Could not load photos")}</div>`;
+  }
+}
+
+async function addPhoto(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  try {
+    await Kudde.apiUpload(`/api/animals/${encodeURIComponent(editingTag)}/photos`, formData);
+    Kudde.toast("Photo added");
+  } catch (e) {
+    Kudde.toast(Kudde.errorDetail(e));
+    return;
+  }
+  await refreshPhotosList();
 }
 
 function showAnimalModal() {
@@ -605,6 +652,14 @@ async function init() {
   document.getElementById("cancelMoveBtn").addEventListener("click", closeMoveModal);
   document.getElementById("backMoveBtn").addEventListener("click", backToMoveLocations);
   document.getElementById("confirmMoveBtn").addEventListener("click", confirmMove);
+  document.getElementById("addPhotoBtn").addEventListener("click", () => {
+    document.getElementById("photoInput").click();
+  });
+  document.getElementById("photoInput").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (file && editingTag) await addPhoto(file);
+  });
 
   KWPTR.attach(async () => { await loadAnimals(); await loadDashboard(); });
   window.addEventListener("online", async () => { await loadAnimals(); await loadDashboard(); });

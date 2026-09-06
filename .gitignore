@@ -18,5 +18,8 @@ data/update_available.json
 data/update_available.tmp
 # Copies of the database taken before each migration, by backend/backup.py.
 data/backups/
+# Animal photos, written by backend/routers/photos.py. Farm data, like the
+# database beside it - not something the repository carries.
+data/photos/
 .DS_Store
 *.pyc
