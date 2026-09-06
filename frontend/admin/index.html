@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kudde Admin</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Kudde">
+<meta name="theme-color" content="#0A2F6B">
+<script src="../shared/tailwind.js"></script>
+<link rel="stylesheet" href="../shared/vendor/fontawesome/css/all.min.css">
+<link rel="stylesheet" href="../shared/styles.css">
+<script src="../shared/api.js"></script>
+<script src="../shared/ptr.js"></script>
+</head>
+<body class="bg-slate-100 min-h-screen pb-6">
+
+<div class="kudde-header p-4">
+  <div class="flex items-start justify-between gap-3">
+    <div>
+      <div class="font-bold text-2xl md:text-3xl leading-tight">Kudde</div>
+      <div class="text-sm opacity-80">Admin</div>
+    </div>
+    <div class="text-right text-xs">
+      <div id="syncStatus" class="px-2 py-1 rounded-full bg-white/20 inline-block">checking...</div>
+      <div id="appVersion" class="opacity-60 mt-1"></div>
+    </div>
+  </div>
+</div>
+
+<div class="flex overflow-x-auto bg-white shadow sticky top-0 z-10">
+  <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+  <button class="tab-btn" data-tab="herd">Herd</button>
+</div>
+
+<div class="p-3 max-w-4xl mx-auto space-y-3">
+
+  <!-- Dashboard tab -->
+  <div id="tab-dashboard" class="tab-content space-y-3">
+    <div class="grid grid-cols-3 gap-3">
+      <div class="bg-white rounded-xl p-3 shadow text-center">
+        <div class="text-2xl font-bold" id="statAlive">0</div>
+        <div class="text-xs text-slate-500">Alive</div>
+      </div>
+      <div class="bg-white rounded-xl p-3 shadow text-center">
+        <div class="text-2xl font-bold" id="statDead">0</div>
+        <div class="text-xs text-slate-500">Dead</div>
+      </div>
+      <div class="bg-white rounded-xl p-3 shadow text-center">
+        <div class="text-2xl font-bold" id="statSold">0</div>
+        <div class="text-xs text-slate-500">Sold</div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl p-3 shadow">
+      <div class="text-sm font-semibold text-slate-500 mb-2">
+        <i class="fa-solid fa-triangle-exclamation text-amber-500"></i>
+        Needs weighing <span class="text-slate-400 font-normal">(no weight recorded in 6 months)</span>
+      </div>
+      <div id="needsWeighingList" class="space-y-1 text-sm"></div>
+      <div id="needsWeighingEmpty" class="hidden text-slate-400 text-sm">Nothing outstanding</div>
+    </div>
+
+    <div class="bg-white rounded-xl p-3 shadow">
+      <div class="text-sm font-semibold text-slate-500 mb-2">Recent activity</div>
+      <div id="recentActivityList" class="space-y-1 text-sm"></div>
+    </div>
+  </div>
+
+  <!-- Herd tab -->
+  <div id="tab-herd" class="tab-content hidden space-y-3">
+    <div class="bg-white rounded-xl p-3 shadow flex flex-col sm:flex-row gap-2">
+      <input id="herdSearchInput" type="text" placeholder="Search by tag or name"
+             class="flex-1 border border-slate-300 rounded-lg p-2">
+      <select id="herdStatusFilter" class="border border-slate-300 rounded-lg p-2">
+        <option value="">All statuses</option>
+        <option value="alive">Alive</option>
+        <option value="dead">Dead</option>
+        <option value="sold">Sold</option>
+      </select>
+      <button id="addAnimalBtn" class="kudde-btn-primary rounded-lg px-4 py-2 font-semibold whitespace-nowrap">
+        <i class="fa-solid fa-plus"></i> Add animal
+      </button>
+    </div>
+
+    <div class="bg-white rounded-xl shadow overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-xs text-slate-500 border-b">
+            <th class="p-3">Tag</th>
+            <th class="p-3">Name</th>
+            <th class="p-3">Breed</th>
+            <th class="p-3">Sex</th>
+            <th class="p-3">Birth date</th>
+            <th class="p-3">Status</th>
+          </tr>
+        </thead>
+        <tbody id="herdTableBody"></tbody>
+      </table>
+      <div id="herdEmpty" class="hidden text-center text-slate-400 text-sm py-6">No animals match</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Add / edit animal modal -->
+<div id="animalModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-40 overflow-y-auto">
+  <div class="bg-white rounded-xl p-5 w-full max-w-lg my-6">
+    <div class="flex items-center justify-between mb-3">
+      <div class="font-bold text-lg" id="animalModalTitle">Add animal</div>
+      <span id="animalModalStatusPill" class="text-xs font-semibold px-2 py-1 rounded-full hidden"></span>
+    </div>
+
+    <div class="grid grid-cols-2 gap-3 mb-2">
+      <div>
+        <label class="text-xs text-slate-500">Tag number *</label>
+        <input id="fTag" type="text" class="w-full border border-slate-300 rounded-lg p-2">
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Name</label>
+        <input id="fName" type="text" class="w-full border border-slate-300 rounded-lg p-2">
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Sex *</label>
+        <select id="fSex" class="w-full border border-slate-300 rounded-lg p-2">
+          <option value="female">Female</option>
+          <option value="male">Male</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Breed</label>
+        <input id="fBreed" type="text" class="w-full border border-slate-300 rounded-lg p-2">
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Birth date</label>
+        <input id="fBirthDate" type="date" class="w-full border border-slate-300 rounded-lg p-2">
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Status</label>
+        <select id="fStatus" class="w-full border border-slate-300 rounded-lg p-2">
+          <option value="alive">Alive</option>
+          <option value="dead">Dead</option>
+          <option value="sold">Sold</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Sire tag</label>
+        <input id="fSireTag" type="text" class="w-full border border-slate-300 rounded-lg p-2">
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Dam tag</label>
+        <input id="fDamTag" type="text" class="w-full border border-slate-300 rounded-lg p-2">
+      </div>
+    </div>
+
+    <div class="flex gap-2 mt-3 mb-4">
+      <button id="cancelAnimalBtn" class="flex-1 rounded-lg py-2 bg-slate-100">Cancel</button>
+      <button id="saveAnimalBtn" class="flex-1 kudde-btn-primary rounded-lg py-2 font-semibold">Save</button>
+    </div>
+
+    <!-- Event history + add-event form, only shown when editing an existing animal -->
+    <div id="animalEventsSection" class="hidden border-t pt-3">
+      <div class="text-sm font-semibold text-slate-500 mb-2">History</div>
+      <div id="animalEventsList" class="space-y-1 text-sm mb-3 max-h-40 overflow-y-auto"></div>
+
+      <div class="grid grid-cols-2 gap-2 items-end">
+        <div>
+          <label class="text-xs text-slate-500">Add event</label>
+          <select id="newEventKind" class="w-full border border-slate-300 rounded-lg p-2">
+            <option value="weight">Weight</option>
+            <option value="treatment">Treatment</option>
+            <option value="movement">Movement</option>
+            <option value="birth">Birth</option>
+            <option value="sale">Sale</option>
+            <option value="death">Death</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Date</label>
+          <input id="newEventDate" type="date" class="w-full border border-slate-300 rounded-lg p-2">
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Value (kg, weight only)</label>
+          <input id="newEventValue" type="number" step="0.1" class="w-full border border-slate-300 rounded-lg p-2">
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Location (movement only)</label>
+          <input id="newEventLocation" type="text" class="w-full border border-slate-300 rounded-lg p-2">
+        </div>
+        <div class="col-span-2">
+          <label class="text-xs text-slate-500">Note</label>
+          <input id="newEventNote" type="text" class="w-full border border-slate-300 rounded-lg p-2">
+        </div>
+        <button id="addEventBtn" class="col-span-2 kudde-btn-primary rounded-lg py-2 font-semibold">
+          <i class="fa-solid fa-plus"></i> Record event
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
