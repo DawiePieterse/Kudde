@@ -12,9 +12,11 @@
 <meta name="theme-color" content="#0A2F6B">
 <script src="../shared/tailwind.js"></script>
 <link rel="stylesheet" href="../shared/vendor/fontawesome/css/all.min.css">
+<link rel="stylesheet" href="../shared/vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="../shared/styles.css">
 <script src="../shared/api.js"></script>
 <script src="../shared/ptr.js"></script>
+<script src="../shared/vendor/leaflet/leaflet.js"></script>
 </head>
 <body class="bg-slate-100 min-h-screen pb-6">
 
@@ -34,6 +36,7 @@
 <div class="flex overflow-x-auto bg-white shadow sticky top-0 z-10">
   <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
   <button class="tab-btn" data-tab="herd">Herd</button>
+  <button class="tab-btn" data-tab="settings">Settings</button>
 </div>
 
 <div class="p-3 max-w-4xl mx-auto space-y-3">
@@ -108,6 +111,52 @@
       </table>
       <div id="herdEmpty" class="hidden text-center text-slate-400 text-sm py-6">No animals match</div>
     </div>
+  </div>
+
+  <!-- Settings tab -->
+  <div id="tab-settings" class="tab-content hidden space-y-3">
+    <div class="bg-white rounded-xl p-3 shadow">
+      <div class="text-sm font-semibold text-slate-500 mb-2">Farm details</div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs text-slate-500">Farm name</label>
+          <input id="fFarmName" type="text" class="w-full border border-slate-300 rounded-lg p-2">
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Farmer name</label>
+          <input id="fFarmerName" type="text" class="w-full border border-slate-300 rounded-lg p-2">
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Phone number</label>
+          <input id="fPhoneNumber" type="tel" class="w-full border border-slate-300 rounded-lg p-2">
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl p-3 shadow">
+      <div class="text-sm font-semibold text-slate-500 mb-2">
+        GPS coordinates <span class="text-slate-400 font-normal">(for weather)</span>
+      </div>
+      <div class="flex flex-wrap items-end gap-3 mb-2">
+        <div>
+          <label class="text-xs text-slate-500">Latitude</label>
+          <input id="fGpsLat" type="number" step="any" min="-90" max="90"
+                 class="w-32 border border-slate-300 rounded-lg p-2">
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Longitude</label>
+          <input id="fGpsLng" type="number" step="any" min="-180" max="180"
+                 class="w-32 border border-slate-300 rounded-lg p-2">
+        </div>
+        <button id="useMyLocationBtn" class="rounded-lg px-3 py-2 text-sm font-semibold bg-slate-100 whitespace-nowrap">
+          <i class="fa-solid fa-location-crosshairs"></i> Use current location
+        </button>
+      </div>
+      <div class="text-xs text-slate-400 mb-2">Click anywhere on the map, or drag the pin, to set the farm's location.</div>
+      <div id="farmMap" class="rounded-lg border border-slate-200" style="height: 320px;"></div>
+    </div>
+
+    <button id="saveFarmBtn" class="w-full kudde-btn-primary rounded-lg py-2 font-semibold">Save settings</button>
   </div>
 
 </div>
