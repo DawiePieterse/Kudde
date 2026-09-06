@@ -481,6 +481,103 @@ async function saveFarm() {
 }
 
 // ---------------------------------------------------------------------
+// Move camp (bulk movement)
+// ---------------------------------------------------------------------
+
+let moveLocations = [];        // last /api/locations response
+let moveSelectedLocation = null;
+
+async function openMoveModal() {
+  let data;
+  try {
+    data = await Kudde.api("/api/locations");
+    Kudde.setOffline(false);
+  } catch (e) {
+    if (Kudde.isNetworkError(e)) { Kudde.setOffline(true); Kudde.toast("Offline - could not load locations"); return; }
+    Kudde.toast(Kudde.errorDetail(e));
+    return;
+  }
+
+  moveLocations = data;
+  renderMoveLocations();
+  document.getElementById("moveLocationsView").classList.remove("hidden");
+  document.getElementById("moveAnimalsView").classList.add("hidden");
+  document.getElementById("moveModal").classList.remove("hidden");
+  document.getElementById("moveModal").classList.add("flex");
+}
+
+function renderMoveLocations() {
+  const list = document.getElementById("moveLocationsList");
+  document.getElementById("moveLocationsEmpty").classList.toggle("hidden", moveLocations.length > 0);
+  list.innerHTML = moveLocations.map((loc) => `
+    <button class="w-full text-left bg-slate-50 hover:bg-slate-100 rounded-lg p-3 flex items-center justify-between move-location-btn" data-location="${escapeHtml(loc.location)}">
+      <span class="font-semibold">${escapeHtml(loc.location)}</span>
+      <span class="text-xs text-slate-500">${loc.animals.length} animal${loc.animals.length === 1 ? "" : "s"}</span>
+    </button>`).join("");
+  list.querySelectorAll(".move-location-btn").forEach((btn) => {
+    btn.addEventListener("click", () => openMoveAnimals(btn.dataset.location));
+  });
+}
+
+function openMoveAnimals(location) {
+  moveSelectedLocation = moveLocations.find((l) => l.location === location);
+  if (!moveSelectedLocation) return;
+
+  document.getElementById("moveFromLocation").textContent = location;
+  document.getElementById("moveDate").value = Kudde.localDateStr();
+  document.getElementById("moveToLocation").value = "";
+  document.getElementById("moveNote").value = "";
+  renderMoveAnimals();
+  document.getElementById("moveLocationsView").classList.add("hidden");
+  document.getElementById("moveAnimalsView").classList.remove("hidden");
+}
+
+function renderMoveAnimals() {
+  document.getElementById("moveAnimalsList").innerHTML = moveSelectedLocation.animals.map((a) => `
+    <label class="flex items-center gap-2 py-1">
+      <input type="checkbox" class="move-animal-check w-4 h-4" data-tag="${escapeHtml(a.tag)}" checked>
+      <span>${escapeHtml(a.tag)}${a.name ? ` - ${escapeHtml(a.name)}` : ""}</span>
+    </label>`).join("");
+}
+
+function backToMoveLocations() {
+  document.getElementById("moveAnimalsView").classList.add("hidden");
+  document.getElementById("moveLocationsView").classList.remove("hidden");
+  moveSelectedLocation = null;
+}
+
+function closeMoveModal() {
+  document.getElementById("moveModal").classList.add("hidden");
+  document.getElementById("moveModal").classList.remove("flex");
+  moveSelectedLocation = null;
+}
+
+async function confirmMove() {
+  const tags = Array.from(document.querySelectorAll(".move-animal-check:checked")).map((el) => el.dataset.tag);
+  if (!tags.length) { Kudde.toast("Select at least one animal"); return; }
+  const eventDate = document.getElementById("moveDate").value;
+  if (!eventDate) { Kudde.toast("Date is required"); return; }
+  const location = document.getElementById("moveToLocation").value.trim();
+  if (!location) { Kudde.toast("New location is required"); return; }
+
+  const payload = { tags, event_date: eventDate, location, note: document.getElementById("moveNote").value.trim() };
+
+  try {
+    await Kudde.api("/api/events/movement/bulk", { method: "POST", body: payload });
+    Kudde.setOffline(false);
+  } catch (e) {
+    if (Kudde.isNetworkError(e)) { Kudde.setOffline(true); Kudde.toast("Offline - could not save"); return; }
+    Kudde.toast(Kudde.errorDetail(e));
+    return;
+  }
+
+  closeMoveModal();
+  Kudde.toast(`Moved ${tags.length} animal${tags.length === 1 ? "" : "s"} to ${location}`);
+  await loadAnimals();
+  await loadDashboard();
+}
+
+// ---------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------
 
@@ -504,6 +601,10 @@ async function init() {
   document.getElementById("saveFarmBtn").addEventListener("click", saveFarm);
   document.getElementById("fGpsLat").addEventListener("change", syncMarkerFromInputs);
   document.getElementById("fGpsLng").addEventListener("change", syncMarkerFromInputs);
+  document.getElementById("moveCampBtn").addEventListener("click", openMoveModal);
+  document.getElementById("cancelMoveBtn").addEventListener("click", closeMoveModal);
+  document.getElementById("backMoveBtn").addEventListener("click", backToMoveLocations);
+  document.getElementById("confirmMoveBtn").addEventListener("click", confirmMove);
 
   KWPTR.attach(async () => { await loadAnimals(); await loadDashboard(); });
   window.addEventListener("online", async () => { await loadAnimals(); await loadDashboard(); });

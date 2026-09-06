@@ -13,6 +13,30 @@ from weather import fetch_daily_weather
 
 router = APIRouter(prefix="/api", tags=["events"])
 
+# Locations a camp move needs to reason about: only movement and birth
+# events actually place an animal somewhere the herd grazes (a weight or
+# treatment event's location, if ever set, is incidental to where it
+# happened, not a place the animal is considered to live).
+_LOCATION_EVENT_KINDS = [EventKind.movement, EventKind.birth]
+
+
+def _current_locations(session: Session) -> dict:
+    """Latest known camp/location per animal_id, from movement/birth events
+    that actually recorded one. Powers both the /locations picker and any
+    "where is this animal now" question - there's no stored current-location
+    field, it's always derived from event history."""
+    rows = session.exec(
+        select(Event.animal_id, Event.location)
+        .where(Event.kind.in_(_LOCATION_EVENT_KINDS))
+        .where(Event.location != "")
+        .order_by(Event.animal_id, Event.event_date.desc(), Event.id.desc())
+    ).all()
+    latest: dict = {}
+    for animal_id, location in rows:
+        latest.setdefault(animal_id, location)  # first row per animal_id is the latest, by the order_by above
+    return latest
+
+
 # What Animal.status becomes when an event of this kind is recorded, if
 # anything - a death or sale event is also the moment the animal leaves the
 # herd, and a farmer capturing one in the field shouldn't have to also
@@ -57,6 +81,15 @@ class EventCreate(SQLModel):
         if self.kind is EventKind.weight and (self.value is None or self.value <= 0):
             raise ValueError("a weight event needs a weight in kg")
         return self
+
+
+class BulkMovementCreate(SQLModel):
+    """Move a whole camp at once: the normal case is every animal in a
+    field moving together, not one tag typed in at a time."""
+    tags: list[str]
+    event_date: date
+    location: str
+    note: str = ""
 
 
 def _animal_by_tag(session: Session, tag: str) -> Animal:
@@ -119,6 +152,46 @@ def create_event(payload: EventCreate, session: Session = Depends(get_session)):
     session.commit()
     session.refresh(event)
     return event
+
+
+@router.post("/events/movement/bulk")
+def create_bulk_movement(payload: BulkMovementCreate, session: Session = Depends(get_session)):
+    """Record the same movement for every listed animal in one call, so a
+    camp move lands as one save instead of one request per tag. Tags are
+    resolved up front - if any one of them doesn't exist, nothing is
+    written, rather than moving half a camp and failing partway through."""
+    if not payload.tags:
+        raise HTTPException(400, "At least one tag is required")
+    animals = [_animal_by_tag(session, tag) for tag in payload.tags]
+    events = [
+        Event(animal_id=a.id, kind=EventKind.movement, event_date=payload.event_date,
+              location=payload.location, note=payload.note)
+        for a in animals
+    ]
+    session.add_all(events)
+    session.commit()
+    for event in events:
+        session.refresh(event)
+    return events
+
+
+@router.get("/locations")
+def list_locations(session: Session = Depends(get_session)):
+    """Every camp/location currently holding at least one alive animal,
+    grouped with who's there - what the "move whole camp" picker uses so a
+    location can be selected without typing out every tag in it."""
+    latest_location = _current_locations(session)
+    alive = session.exec(select(Animal).where(Animal.status == AnimalStatus.alive)).all()
+    grouped: dict = {}
+    for animal in alive:
+        location = latest_location.get(animal.id)
+        if not location:
+            continue
+        grouped.setdefault(location, []).append({"tag": animal.tag, "name": animal.name})
+    return [
+        {"location": location, "animals": sorted(members, key=lambda a: a["tag"])}
+        for location, members in sorted(grouped.items())
+    ]
 
 
 @router.get("/animals/{tag}/events")
