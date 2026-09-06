@@ -4,13 +4,19 @@ Files live on disk under PHOTOS_DIR/<animal_id>/<uuid>.<ext> - the database
 only ever stores that filename, never raw bytes, so the sqlite file stays
 small and the photos remain plain files a farmer could browse directly if
 the app ever went away.
+
+Every upload is re-encoded server-side (see _process_image) rather than
+trusted to arrive pre-shrunk: a phone camera photo is routinely 3-8MB, and
+that's true whether it came from the field app's own capture or a browser
+file picker, so shrinking has to happen here to actually bound storage.
 """
-import mimetypes
+import io
 import os
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
+from PIL import Image, ImageOps
 from sqlmodel import Session, select
 
 from db import PHOTOS_DIR, get_session
@@ -22,6 +28,14 @@ router = APIRouter(prefix="/api", tags=["photos"])
 # anything that could fill the farm server's disk from one bad upload.
 _MAX_PHOTO_BYTES = 15 * 1024 * 1024
 
+# Long edge, in pixels, after resizing - plenty to fill a phone or admin
+# screen; a farm animal photo doesn't need to be printable. Everything is
+# re-encoded as JPEG regardless of the source format, since that's what
+# actually gets small file sizes for a photograph (unlike PNG, which a lot
+# of phone/browser upload paths default to).
+_MAX_DIMENSION = 1600
+_JPEG_QUALITY = 82
+
 
 def _animal_by_tag(session: Session, tag: str) -> Animal:
     animal = session.exec(select(Animal).where(Animal.tag == tag)).first()
@@ -32,6 +46,27 @@ def _animal_by_tag(session: Session, tag: str) -> Animal:
 
 def _photo_out(photo: AnimalPhoto) -> dict:
     return {**photo.model_dump(), "url": f"/api/photos/{photo.id}/file"}
+
+
+def _shrink_to_jpeg(data: bytes) -> bytes:
+    try:
+        image = Image.open(io.BytesIO(data))
+        image.load()
+    except Exception:
+        raise HTTPException(400, "Could not read that as an image")
+
+    # A camera photo's pixels are usually stored "sideways" with an EXIF tag
+    # telling the viewer to rotate it - transpose them for real now, since
+    # re-encoding below discards that tag and would otherwise bake in a
+    # photo that displays rotated everywhere from here on.
+    image = ImageOps.exif_transpose(image)
+    if image.mode not in ("RGB", "L"):
+        image = image.convert("RGB")  # JPEG has no alpha channel
+    image.thumbnail((_MAX_DIMENSION, _MAX_DIMENSION), Image.LANCZOS)
+
+    out = io.BytesIO()
+    image.save(out, format="JPEG", quality=_JPEG_QUALITY, optimize=True)
+    return out.getvalue()
 
 
 @router.post("/animals/{tag}/photos")
@@ -47,10 +82,8 @@ async def add_animal_photo(tag: str, file: UploadFile = File(...), caption: str 
     if len(data) > _MAX_PHOTO_BYTES:
         raise HTTPException(413, "Photo is too large")
 
-    ext = mimetypes.guess_extension(file.content_type) or ".jpg"
-    if ext == ".jpe":  # mimetypes' historical alias for jpeg - not what anything else expects
-        ext = ".jpg"
-    filename = f"{uuid.uuid4().hex}{ext}"
+    data = _shrink_to_jpeg(data)
+    filename = f"{uuid.uuid4().hex}.jpg"
 
     animal_dir = os.path.join(PHOTOS_DIR, str(animal.id))
     os.makedirs(animal_dir, exist_ok=True)
@@ -58,7 +91,7 @@ async def add_animal_photo(tag: str, file: UploadFile = File(...), caption: str 
         f.write(data)
 
     photo = AnimalPhoto(animal_id=animal.id, filename=filename,
-                         content_type=file.content_type, caption=caption.strip())
+                         content_type="image/jpeg", caption=caption.strip())
     session.add(photo)
     session.commit()
     session.refresh(photo)

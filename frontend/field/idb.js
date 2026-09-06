@@ -2,7 +2,8 @@
 //
 // One object store ("outbox") holding every create-animal / record-event
 // request made while this device couldn't reach the server, each an
-// {uuid, kind: "animal"|"event"|"bulk_movement", payload, synced, timestamp}.
+// {uuid, kind: "animal"|"event"|"bulk_movement"|"photo", payload, synced,
+// timestamp}.
 // The animal list itself is cached separately (see "animal_cache" below) so
 // the herd is still browsable offline, not just capturable.
 //
