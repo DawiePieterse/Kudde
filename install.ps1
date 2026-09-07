@@ -159,11 +159,14 @@ cd /d "$BackendDir"
     # Poll until it responds rather than sleeping a fixed few seconds and
     # declaring success - a server that died on startup (missing dependency,
     # port already in use) should say so, not look identical to a slow one.
+    # Hits /healthz rather than /field/ - the whole app is Tailscale-only
+    # (backend/security.py), so a plain http://localhost request to any
+    # other path gets refused with 403 even on a perfectly healthy install.
     $serverUp = $false
     for ($i = 0; $i -lt 20; $i++) {
         Start-Sleep -Seconds 1
         try {
-            $resp = Invoke-WebRequest -Uri "http://localhost:$Port/field/" -UseBasicParsing -TimeoutSec 3
+            $resp = Invoke-WebRequest -Uri "http://localhost:$Port/healthz" -UseBasicParsing -TimeoutSec 3
             if ($resp.StatusCode -eq 200) { $serverUp = $true; break }
         } catch { }
     }
@@ -187,21 +190,23 @@ cd /d "$BackendDir"
     Write-Host " Setup complete!" -ForegroundColor Green
     Write-Host "================================================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host " On this PC:"
-    Write-Host "   Field:  http://localhost:$Port/field/"
-    Write-Host "   Admin:  http://localhost:$Port/admin/"
     if ($ip) {
-        Write-Host ""
-        Write-Host " From a phone or another PC on this network:"
-        Write-Host "   Field:  http://$ip`:$Port/field/"
-        Write-Host "   Admin:  http://$ip`:$Port/admin/"
+        Write-Host " This PC's address: $ip`:$Port"
     } else {
         Write-Warn "Could not detect this PC's network address automatically - run 'ipconfig' and look for 'IPv4 Address'."
     }
     Write-Host ""
-    Write-Host " There is no sign-in - both screens open straight up. Admin is not"
-    Write-Host " restricted to any particular network the way Boord's is; anyone on"
-    Write-Host " this network who opens the Admin address can edit the herd."
+    # There is no sign-in and no accounts - what decides who gets in is which
+    # network the request arrived on (backend/security.py). Unlike Boord,
+    # which only gates its Admin screens this way, Kudde gates the whole
+    # app: there are no separate field devices it has to stay open for.
+    Write-Host " There is no sign-in. Both Field and Admin open straight up - but only" -ForegroundColor Yellow
+    Write-Host " over Tailscale. Neither http://localhost:$Port/ nor the network address" -ForegroundColor Yellow
+    Write-Host " above will work; both answer with a refusal. That is what keeps the" -ForegroundColor Yellow
+    Write-Host " herd off the farm wifi and off any remote desktop session to this PC." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host " So set up Tailscale before you try to use Kudde, and open the"
+    Write-Host " https://...ts.net/ address it gives you, then add /field/ or /admin/."
     Write-Host ""
     Write-Host " The server will now start automatically every time this PC turns on."
     Write-Host ""
