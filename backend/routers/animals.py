@@ -6,6 +6,7 @@ from sqlmodel import Session, SQLModel, select
 
 from db import get_session
 from models import Animal, AnimalSex, AnimalStatus
+from security import require_admin_client
 
 router = APIRouter(prefix="/api/animals", tags=["animals"])
 
@@ -72,10 +73,16 @@ def create_animal(payload: AnimalCreate, session: Session = Depends(get_session)
 
 
 @router.patch("/{tag}")
-def update_animal(tag: str, payload: AnimalUpdate, session: Session = Depends(get_session)):
+def update_animal(tag: str, payload: AnimalUpdate, session: Session = Depends(get_session),
+                   _admin=Depends(require_admin_client)):
     """Partial update - only the fields the client sends are touched, so a
     field-app edit ("mark as sold") can't clobber data an admin edit made
-    around the same time."""
+    around the same time.
+
+    Admin-only: correcting an existing record (renaming, fixing a birth
+    date, reassigning parentage) is exclusively an Admin-app action today -
+    see security.py. Recording what happened to an animal in the field
+    still goes through POST /api/events, which stays open to the farm wifi."""
     animal = session.exec(select(Animal).where(Animal.tag == tag)).first()
     if animal is None:
         raise HTTPException(404, f"No animal with tag {tag!r}")
