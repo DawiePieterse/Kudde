@@ -5,7 +5,7 @@ network path a request arrived on: Kudde answers Tailscale, and nothing
 else - Field included. A phone on the farm wifi, or a browser on this PC's
 own console reached over AnyDesk, gets the same refusal an outsider would.
 
-That includes the server's own console: browsing http://localhost:8010/
+That includes the server's own console: browsing http://localhost:8030/
 while sitting at the machine is refused like anywhere else, and the one
 exemption - the health check below - deliberately says nothing about the
 herd. A loopback exemption for anything more is one that any AnyDesk

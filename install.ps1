@@ -18,9 +18,13 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = $PSScriptRoot
 $BackendDir = Join-Path $RepoRoot "backend"
 $VenvDir = Join-Path $BackendDir ".venv"
-# Boord's own server defaults to 8000 - a different port so both can run on
-# the same farm PC without a conflict, one install untouched by the other.
-$Port = 8010
+# A distinct port from every other app that might already be on this farm
+# PC. Boord defaults to 8000; Boord Owner and Boord Notes have been seen
+# running as 8010 and 8020 on a real farm server - Kudde nearly collided
+# with Boord Owner over 8010 on exactly that kind of shared box before this
+# was caught, so 8030 continues the sequence rather than reusing a number
+# any sibling app might already hold.
+$Port = 8030
 $TaskName = "Kudde Server"
 $FirewallRuleName = "Kudde Server"
 $PythonVersion = "3.11.9"
