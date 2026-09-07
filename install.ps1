@@ -156,14 +156,16 @@ cd /d "$BackendDir"
     schtasks /run /tn "$TaskName" | Out-Null
 
     # --- Step 8: Confirm it actually answers ---
-    # Poll until it responds rather than sleeping a fixed few seconds and
-    # declaring success - a server that died on startup (missing dependency,
-    # port already in use) should say so, not look identical to a slow one.
+    # Poll /healthz rather than /field/ or /admin/ - both now refuse anything
+    # that didn't arrive over Tailscale, which this PC's own console never
+    # has until Tailscale is set up (see the notice below). /healthz is the
+    # one address that stays open everywhere, precisely so this check can
+    # tell "the process died" apart from "Tailscale isn't set up yet".
     $serverUp = $false
     for ($i = 0; $i -lt 20; $i++) {
         Start-Sleep -Seconds 1
         try {
-            $resp = Invoke-WebRequest -Uri "http://localhost:$Port/field/" -UseBasicParsing -TimeoutSec 3
+            $resp = Invoke-WebRequest -Uri "http://localhost:$Port/healthz" -UseBasicParsing -TimeoutSec 3
             if ($resp.StatusCode -eq 200) { $serverUp = $true; break }
         } catch { }
     }
@@ -176,35 +178,21 @@ cd /d "$BackendDir"
         Write-Warn "by the Scheduled Task."
     }
 
-    # --- Step 9: Report the address ---
-    Write-Step "Finding this PC's network address..."
-    $ip = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-        Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" -and $_.PrefixOrigin -ne "WellKnown" } |
-        Select-Object -First 1 -ExpandProperty IPAddress
-
     Write-Host ""
     Write-Host "================================================" -ForegroundColor Cyan
     Write-Host " Setup complete!" -ForegroundColor Green
     Write-Host "================================================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host " On this PC:"
-    Write-Host "   Field:  http://localhost:$Port/field/"
-    Write-Host "   Admin:  http://localhost:$Port/admin/"
-    if ($ip) {
-        Write-Host ""
-        Write-Host " From a phone or another PC on this network:"
-        Write-Host "   Field:  http://$ip`:$Port/field/"
-        Write-Host "   Admin:  http://$ip`:$Port/admin/"
-    } else {
-        Write-Warn "Could not detect this PC's network address automatically - run 'ipconfig' and look for 'IPv4 Address'."
-    }
+    Write-Host " There is no sign-in, and no address on the farm wifi works - not"
+    Write-Host " even http://localhost:$Port/ on this PC itself. Field and Admin"
+    Write-Host " both answer only over Tailscale now."
     Write-Host ""
-    Write-Host " There is no sign-in - both screens open straight up. Field works on"
-    Write-Host " this farm wifi as shown above. Admin, and correcting an existing"
-    Write-Host " record, only answer over Tailscale - that includes this PC itself:"
-    Write-Host " http://localhost:$Port/admin/ is refused here too. Set up Tailscale"
-    Write-Host " and open the https://...ts.net/ address it gives you to reach Admin"
-    Write-Host " from any device, including this one."
+    Write-Host " Set up Tailscale on this PC (tailscale.com/download) and on every"
+    Write-Host " phone or tablet that needs Field or Admin, signed into the same"
+    Write-Host " tailnet. Once this PC is connected, run 'tailscale status' here to"
+    Write-Host " find its https://<name>.<tailnet>.ts.net/ address, then open that"
+    Write-Host " address with /field/ or /admin/ appended from any connected device -"
+    Write-Host " including this one; localhost does not get an exemption."
     Write-Host ""
     Write-Host " The server will now start automatically every time this PC turns on."
     Write-Host ""

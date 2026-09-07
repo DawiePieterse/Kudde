@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from migrate import run_migrations
 from routers import animals, dashboard, events
-from security import ADMIN_ONLY_MESSAGE, is_admin_client
+from security import TAILSCALE_ONLY_MESSAGE, is_tailscale_client
 
 app = FastAPI(title="Kudde")
 
@@ -22,28 +22,35 @@ app.include_router(animals.router)
 app.include_router(events.router)
 app.include_router(dashboard.router)
 
+# The only thing that answers off Tailscale: proves the process is up
+# without telling a farm-wifi device or an AnyDesk console anything about
+# the herd. install.ps1's own post-install check depends on this - it runs
+# before Tailscale is necessarily configured, from this PC's own console,
+# which is otherwise refused exactly like anywhere else.
+_HEALTH_PATH = "/healthz"
+
+
+@app.get(_HEALTH_PATH)
+def healthz():
+    return {"status": "ok"}
+
 
 @app.middleware("http")
-async def admin_app_is_not_on_the_farm_wifi(request: Request, call_next):
-    """The Admin screens themselves, guarded the same way as PATCH /api/animals.
+async def kudde_is_not_on_the_farm_wifi(request: Request, call_next):
+    """Every request - Field and Admin alike - is refused unless it arrived
+    over Tailscale. See security.py for what "arrived over Tailscale" means
+    and why it takes two signals to tell.
 
-    Most of what Admin shows (herd list, dashboard, event history) is the
-    same data Field already reaches over farm wifi - so this isn't about
-    hiding data the API doesn't already allow. It's about not handing a
-    phone on the farm wifi a page whose only exclusive action (correcting a
-    record) will 403 no matter what it taps, with nothing on screen to
-    explain why. Blocking the static files says what is actually true, once,
-    at the address bar.
-
-    Matched on the path prefix rather than on the mounted app, because
-    /admin/ is served by the catch-all StaticFiles mount at "/" - there is no
-    separate mount to hang a dependency on. "/admin" itself is included:
-    html=True redirects it to "/admin/", and a redirect is a perfectly good
-    way in.
+    A blanket check rather than one dependency per route: Field and Admin
+    share almost the entire API (list/add animals, record events, the
+    dashboard), so there is no non-admin slice of this app left to leave
+    open - gating routes individually would mean remembering to add the
+    dependency to every new endpoint rather than it being true by default.
     """
-    path = request.url.path
-    if (path == "/admin" or path.startswith("/admin/")) and not is_admin_client(request):
-        return PlainTextResponse(ADMIN_ONLY_MESSAGE, status_code=403)
+    if request.url.path == _HEALTH_PATH:
+        return await call_next(request)
+    if not is_tailscale_client(request):
+        return PlainTextResponse(TAILSCALE_ONLY_MESSAGE, status_code=403)
     return await call_next(request)
 
 

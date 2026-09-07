@@ -1,15 +1,14 @@
-"""Who is allowed to correct a record, and who may open the Admin app.
+"""Who is allowed to reach Kudde at all.
 
-Kudde has one user wearing two hats - the same person walks the veld with
-the Field app and later sits down with the Admin app to fix a mis-tapped
-entry or look at the whole herd table. There is no login, so what decides
-whether a request reaching an admin-only action is trustworthy is the
-network path it arrived on: Tailscale, and nothing else.
+There is no login. What used to be a username and password is now the
+network path a request arrived on: Kudde answers Tailscale, and nothing
+else - Field included. A phone on the farm wifi, or a browser on this PC's
+own console reached over AnyDesk, gets the same refusal an outsider would.
 
-Not even the server's own console. Browsing http://localhost:8010/admin/
-while sitting at the machine is refused like anything else; Admin opens at
-the https://<machine>.<tailnet>.ts.net/ address whatever they are sitting
-at. That is deliberate - a loopback exemption is one that any AnyDesk
+That includes the server's own console: browsing http://localhost:8010/
+while sitting at the machine is refused like anywhere else, and the one
+exemption - the health check below - deliberately says nothing about the
+herd. A loopback exemption for anything more is one that any AnyDesk
 session to this PC would inherit for free, and AnyDesk is exactly how a
 farm server like this is normally reached.
 
@@ -26,15 +25,10 @@ TWO SIGNALS, because only one of them is certain:
      This is the belt to (1)'s braces. If a Tailscale version ever stops
      sending X-Forwarded-For, (1) silently stops matching and every request
      looks like it came from the console - which, without this, would lock
-     the farm out of Admin with no way in short of a rollback. A device on
-     the farm wifi cannot reach this branch: it can forge a Host header
-     trivially, but it cannot make its peer address loopback.
-
-Field's shared endpoints (list/search/add animals, record an event, the
-dashboard) are unaffected - a phone in the veld has always reached those
-over plain farm wifi, and still can. Only what is exclusively an admin
-action today - correcting an existing animal's record - and the Admin
-screens themselves sit behind this.
+     the farm out of its own herd records with no way in short of a
+     rollback. A device on the farm wifi cannot reach this branch: it can
+     forge a Host header trivially, but it cannot make its peer address
+     loopback.
 """
 import ipaddress
 import os
@@ -56,17 +50,16 @@ _TAILNET_RANGES = (
 _TAILNET_HOST_SUFFIX = ".ts.net"
 
 # Local development only, and the farm never sets it: there is no dev-preview
-# entry point in this repo yet, but the escape hatch is named the same way as
-# Boord's so it stays easy to recognise if one gets added later. The launcher
-# install.ps1 writes does not set it, so this cannot quietly become the way
-# in on a real install.
-DEV_LOOPBACK_ENV = "KUDDE_ALLOW_LOOPBACK_ADMIN"
+# entry point in this repo yet, but the escape hatch is named so it stays
+# easy to recognise if one gets added later. The launcher install.ps1 writes
+# does not set it, so this cannot quietly become the way in on a real install.
+DEV_LOOPBACK_ENV = "KUDDE_ALLOW_LOOPBACK"
 
-# What the server says when Admin is opened from anywhere else, or a
-# non-admin device tries to correct a record. Names the fix, because the
+# What the server says when a request reaches a gated endpoint from anywhere
+# else. Names the fix, because the person reading it is the one user and the
 # answer is always the same address.
-ADMIN_ONLY_MESSAGE = (
-    "The Admin app is only reachable over Tailscale - open the secure "
+TAILSCALE_ONLY_MESSAGE = (
+    "Kudde is only reachable over Tailscale - open the secure "
     "https://...ts.net/ address, not the farm wifi one and not localhost"
 )
 
@@ -75,7 +68,7 @@ def _peer_address(request: Request) -> Optional[_IPAddress]:
     """The address this request came from, or None if there isn't a usable
     one. A missing or unparseable client counts as untrusted rather than as
     an error: an ASGI transport that does not set a peer would otherwise
-    open admin-only actions to everyone."""
+    open the whole app to everyone."""
     client = request.client
     if client is None or not client.host:
         return None
@@ -105,8 +98,8 @@ def _asks_for_a_tailnet_site(request: Request) -> bool:
     return False
 
 
-def is_admin_client(request: Request) -> bool:
-    """True when this request may reach an admin-only action."""
+def is_tailscale_client(request: Request) -> bool:
+    """True when this request arrived over Tailscale (or the dev bypass)."""
     address = _peer_address(request)
     if address is None:
         return False
@@ -119,9 +112,9 @@ def is_admin_client(request: Request) -> bool:
     return False
 
 
-def require_admin_client(request: Request) -> None:
-    """Admin-only endpoints depend on this. 403 rather than 401: there are no
+def require_tailscale_client(request: Request) -> None:
+    """Gated endpoints depend on this. 403 rather than 401: there are no
     credentials to go and fetch, so "try again with a token" would be a lie -
     this request came in on the wrong network and always will."""
-    if not is_admin_client(request):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, ADMIN_ONLY_MESSAGE)
+    if not is_tailscale_client(request):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, TAILSCALE_ONLY_MESSAGE)
