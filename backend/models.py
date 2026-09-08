@@ -61,6 +61,19 @@ class Animal(SQLModel, table=True):
 
 class Event(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    # The id the capturing device gave this event, before it had ever reached
+    # a server. It is what makes recording an event idempotent: the field app
+    # gives up on a request after 8 seconds and puts it back in the outbox,
+    # so a request that was slow but actually landed gets replayed, and
+    # without this the herd quietly acquires a second identical weighing.
+    # Nothing else in an event distinguishes it from a real duplicate - the
+    # same animal genuinely can be treated twice on one day.
+    #
+    # Nullable, because an event captured in the admin app never passes
+    # through an outbox and has no such id. Boord does the same thing for
+    # harvest records (backend/routers/sync.py: "idempotent upsert by
+    # client-generated uuid - safe for a field device").
+    client_uuid: Optional[str] = Field(default=None, index=True, unique=True)
     animal_id: int = Field(foreign_key="animal.id", index=True)
     kind: EventKind
     event_date: date

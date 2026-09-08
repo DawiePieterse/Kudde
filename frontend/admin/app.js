@@ -236,11 +236,17 @@ async function addEvent() {
   const eventDate = document.getElementById("newEventDate").value;
   if (!eventDate) { Kudde.toast("Date is required"); return; }
 
+  const value = kind === "weight"
+    ? (parseFloat(document.getElementById("newEventValue").value) || null) : null;
+  // See the field app: a blank weight event hides the animal from the one
+  // screen meant to catch it. The server refuses it too.
+  if (kind === "weight" && !(value > 0)) { Kudde.toast("Enter the weight in kg"); return; }
+
   const payload = {
     tag: editingTag,
     kind,
     event_date: eventDate,
-    value: kind === "weight" ? (parseFloat(document.getElementById("newEventValue").value) || null) : null,
+    value,
     location: document.getElementById("newEventLocation").value.trim(),
     note: document.getElementById("newEventNote").value.trim(),
   };

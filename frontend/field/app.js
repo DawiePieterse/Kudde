@@ -41,7 +41,10 @@ function renderAnimalList() {
   list.innerHTML = "";
   document.getElementById("emptyState").classList.toggle("hidden", animals.length > 0);
 
-  for (const a of filtered.sort((x, y) => x.tag.localeCompare(y.tag))) {
+  // Sorted on a copy: with no search term `filtered` IS `animals`, and
+  // Array.sort works in place - so rendering the list was quietly reordering
+  // the module's own copy of the herd.
+  for (const a of [...filtered].sort((x, y) => x.tag.localeCompare(y.tag))) {
     const card = document.createElement("div");
     card.className = "bg-white rounded-xl p-3 shadow flex items-center justify-between";
     card.innerHTML = `
@@ -230,14 +233,31 @@ async function confirmEvent() {
   const eventDate = document.getElementById("eventDate").value;
   if (!eventDate) { Kudde.toast("Date is required"); return; }
 
+  const value = EVENT_FIELD_CONFIG[activeEventKind].showValue
+    ? parseFloat(document.getElementById("eventValue").value) || null : null;
+  // A weight event with no weight in it silences the "needs weighing"
+  // reminder for another six months while recording nothing, so the server
+  // now refuses one. Caught here as well because this modal is the one place
+  // it can be typed, and the offline path never reaches the server to be
+  // told: an empty weight would sit in the outbox and be dropped on sync.
+  if (activeEventKind === "weight" && !(value > 0)) {
+    Kudde.toast("Enter the weight in kg");
+    return;
+  }
+
   const payload = {
     tag: activeTag,
     kind: activeEventKind,
     event_date: eventDate,
-    value: EVENT_FIELD_CONFIG[activeEventKind].showValue
-      ? parseFloat(document.getElementById("eventValue").value) || null : null,
+    value,
     location: document.getElementById("eventLocation").value.trim(),
     note: document.getElementById("eventNote").value.trim(),
+    // Stamped at capture, not at send, and kept for the replay: the server
+    // records an event once per client_uuid. A request that times out (8s)
+    // may well have landed, and this is the only thing that can tell the
+    // retry apart from a genuine second event - the same animal really can
+    // be treated twice on one day.
+    client_uuid: uuid(),
   };
 
   let pending = false;
@@ -248,7 +268,7 @@ async function confirmEvent() {
     if (!Kudde.isNetworkError(e)) { Kudde.toast(Kudde.errorDetail(e)); return; }
     Kudde.setOffline(true);
     pending = true;
-    await IDB.enqueue({ uuid: uuid(), kind: "event", payload });
+    await IDB.enqueue({ uuid: payload.client_uuid, kind: "event", payload });
   }
 
   // Optimistic local status flip, same rule the server applies - so the list
@@ -282,36 +302,57 @@ function updateSyncStatusPill(pendingCount) {
   }
 }
 
+// trySync is called from four places - startup, the 20s interval, the
+// browser's "online" event and pull-to-refresh - and two of those routinely
+// fire together the moment a device comes back into signal. Two overlapping
+// runs read the same outbox and post every entry in it twice; the second
+// copy of an animal is caught by the unique tag, but nothing distinguishes a
+// duplicated event, so the herd would gain a second identical weighing.
+// Observed as a 409 in a browser run before this guard existed. Boord's
+// field app carries the same one (syncLoop: "interval + online event + PTR
+// can overlap; never double-post").
+//
+// The guard is belt to the server's braces, not a replacement for them: it
+// cannot help across a reload or a second tab, which is what client_uuid is
+// for.
+let syncBusy = false;
+
 async function trySync() {
-  const pending = await IDB.getPending();
-  updateSyncStatusPill(pending.length);
-  if (!pending.length || Kudde.isOffline()) return;
+  if (syncBusy) return;
+  syncBusy = true;
+  try {
+    const pending = await IDB.getPending();
+    updateSyncStatusPill(pending.length);
+    if (!pending.length || Kudde.isOffline()) return;
 
-  for (const entry of pending) {
-    try {
-      if (entry.kind === "animal") {
-        await Kudde.api("/api/animals", { method: "POST", body: entry.payload });
-      } else if (entry.kind === "event") {
-        await Kudde.api("/api/events", { method: "POST", body: entry.payload });
-      }
-      await IDB.markSynced(entry.uuid);
-    } catch (e) {
-      if (!Kudde.isNetworkError(e)) {
-        // The server rejected it outright (e.g. tag already exists because
-        // it synced from another device first) - nothing will change on a
-        // retry, so drop it rather than block every entry behind it forever.
-        console.warn("[kudde] dropping unsyncable outbox entry", entry, e);
+    for (const entry of pending) {
+      try {
+        if (entry.kind === "animal") {
+          await Kudde.api("/api/animals", { method: "POST", body: entry.payload });
+        } else if (entry.kind === "event") {
+          await Kudde.api("/api/events", { method: "POST", body: entry.payload });
+        }
         await IDB.markSynced(entry.uuid);
-        continue;
+      } catch (e) {
+        if (!Kudde.isNetworkError(e)) {
+          // The server rejected it outright (e.g. tag already exists because
+          // it synced from another device first) - nothing will change on a
+          // retry, so drop it rather than block every entry behind it forever.
+          console.warn("[kudde] dropping unsyncable outbox entry", entry, e);
+          await IDB.markSynced(entry.uuid);
+          continue;
+        }
+        Kudde.setOffline(true);
+        break; // still offline - stop and retry the whole batch next time
       }
-      Kudde.setOffline(true);
-      break; // still offline - stop and retry the whole batch next time
     }
-  }
 
-  updateSyncStatusPill((await IDB.getPending()).length);
-  await loadAnimals();
-  await loadDashboard();
+    updateSyncStatusPill((await IDB.getPending()).length);
+    await loadAnimals();
+    await loadDashboard();
+  } finally {
+    syncBusy = false;
+  }
 }
 
 // ---------------------------------------------------------------------
