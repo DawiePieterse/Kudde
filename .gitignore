@@ -3,5 +3,20 @@ backend/__pycache__/
 backend/**/__pycache__/
 data/*.db
 data/*.db-journal
+# The fingerprint of the key this server accepts releases from. Set once per
+# server, by hand. It is deliberately NOT in the repository: a file inside the
+# checkout would be rewritten by the very update it is supposed to be vouching
+# for. See UPDATING.md.
+data/release_key.fpr
+# Written by update_server.bat with the tag it checked out. Only a fallback
+# for backend/version.py when git cannot answer - but it describes this one
+# install, so it does not belong in the repository.
+data/installed_version.txt
+# Written by "update_server.bat --check" - what the last check for a newer
+# signed release found. Describes this install's position, not the code.
+data/update_available.json
+data/update_available.tmp
+# Copies of the database taken before each migration, by backend/backup.py.
+data/backups/
 .DS_Store
 *.pyc

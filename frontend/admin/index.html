@@ -38,6 +38,12 @@
 
 <div class="p-3 max-w-4xl mx-auto space-y-3">
 
+  <!-- Written by "update_server.bat --check" and read from /api/version. Shown
+       on both tabs rather than only on the Dashboard: the person who needs to
+       see it is whoever happens to open Admin, not whoever opens it on a
+       particular screen. Hidden entirely until there is something to say. -->
+  <div id="updateNotice" class="hidden rounded-xl p-3 shadow text-sm"></div>
+
   <!-- Dashboard tab -->
   <div id="tab-dashboard" class="tab-content space-y-3">
     <div class="grid grid-cols-3 gap-3">

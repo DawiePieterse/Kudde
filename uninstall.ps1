@@ -22,6 +22,7 @@ $DataDir = Join-Path $RepoRoot "data"
 $LauncherPath = Join-Path $RepoRoot "start_server.bat"
 $Port = 8010
 $TaskName = "Kudde Server"
+$UpdateCheckTaskName = "Kudde Update Check"
 $FirewallRuleName = "Kudde Server"
 
 function Write-Step($msg) {
@@ -68,7 +69,17 @@ try {
         Write-Ok "No '$TaskName' task registered - nothing to remove"
     }
 
-    # --- Step 2: Make sure the server is really stopped ---
+    # --- Step 2: The daily update check, if setup_update_check.bat registered one ---
+    # Removed even though it never touches the server: left behind, it would
+    # go on running update_server.bat --check every morning against a folder
+    # that may not be there any more.
+    cmd /c "schtasks /query /tn ""$UpdateCheckTaskName"" >nul 2>&1"
+    if ($LASTEXITCODE -eq 0) {
+        cmd /c "schtasks /delete /tn ""$UpdateCheckTaskName"" /f >nul 2>&1"
+        Write-Ok "Removed the '$UpdateCheckTaskName' scheduled task"
+    }
+
+    # --- Step 3: Make sure the server is really stopped ---
     $stopScript = Join-Path $RepoRoot "stop_server.ps1"
     if (Test-Path $stopScript) {
         & $stopScript -Port $Port -TaskName $TaskName
@@ -79,12 +90,12 @@ try {
         Write-Warn "stop_server.ps1 is missing - skipping the port check."
     }
 
-    # --- Step 3: Firewall rule ---
+    # --- Step 4: Firewall rule ---
     Write-Step "Removing the firewall rule..."
     cmd /c "netsh advfirewall firewall delete rule name=""$FirewallRuleName"" >nul 2>&1"
     Write-Ok "Firewall rule '$FirewallRuleName' removed (if it existed)"
 
-    # --- Step 4: Generated launcher ---
+    # --- Step 5: Generated launcher ---
     Write-Step "Removing the generated launcher..."
     if (Test-Path $LauncherPath) {
         Remove-Item $LauncherPath -Force
@@ -93,7 +104,7 @@ try {
         Write-Ok "No start_server.bat to remove"
     }
 
-    # --- Step 5: Virtual environment ---
+    # --- Step 6: Virtual environment ---
     Write-Step "Removing the Python virtual environment..."
     if (Test-Path $VenvDir) {
         $venvSize = Get-FolderSize $VenvDir
@@ -108,7 +119,7 @@ try {
         Write-Ok "No virtual environment to remove"
     }
 
-    # --- Step 6: Say plainly what is left ---
+    # --- Step 7: Say plainly what is left ---
     Write-Host ""
     Write-Host "================================================" -ForegroundColor Green
     Write-Host " Kudde is no longer registered with Windows" -ForegroundColor Green

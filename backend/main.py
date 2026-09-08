@@ -5,7 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from migrate import run_migrations
-from routers import animals, dashboard, events
+from routers import animals, dashboard, events, version
+from version import prime as prime_version
 
 app = FastAPI(title="Kudde")
 
@@ -19,11 +20,17 @@ app.add_middleware(
 app.include_router(animals.router)
 app.include_router(events.router)
 app.include_router(dashboard.router)
+app.include_router(version.router)
 
 
 @app.on_event("startup")
 def on_startup():
     run_migrations()
+    # Shell out to git once, here, rather than on every /api/version request -
+    # and read it as of startup on purpose, so a checkout done by hand without
+    # a restart shows up as a disagreement with the browser header instead of
+    # quietly looking applied.
+    prime_version()
 
 
 class NoCacheStaticFiles(StaticFiles):

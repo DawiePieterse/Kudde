@@ -277,6 +277,60 @@ async function addEvent() {
 }
 
 // ---------------------------------------------------------------------
+// Server version / updates
+// ---------------------------------------------------------------------
+
+// What the server itself is running, which is not the same question as what
+// this browser loaded - a phone or PC holding a cached shell shows an old
+// number in its header long after the server moved on. Failures here are
+// swallowed on purpose: a farm that cannot answer /api/version still has a
+// herd to manage, and this is the least important thing on the screen.
+async function loadServerVersion() {
+  let info;
+  try {
+    info = await Kudde.api("/api/version");
+  } catch (e) {
+    return;
+  }
+
+  const versionEl = document.getElementById("appVersion");
+  if (info.version && info.version !== Kudde.VERSION) {
+    // Deliberately shown rather than reconciled. The two disagreeing is the
+    // signal: either this screen is stale (close the app fully and reopen),
+    // or the code was checked out without restarting the server.
+    versionEl.innerHTML = `v${escapeHtml(Kudde.VERSION)} <span class="text-amber-300">- server v${escapeHtml(info.version)}</span>`;
+  }
+
+  const notice = document.getElementById("updateNotice");
+  const update = info.update;
+  if (!update) return;   // nobody has set up setup_update_check.bat here
+
+  if (update.available) {
+    notice.className = "rounded-xl p-3 shadow text-sm bg-amber-50 border border-amber-300 text-amber-900";
+    notice.innerHTML = `
+      <div class="font-semibold"><i class="fa-solid fa-circle-arrow-up"></i>
+        Kudde ${escapeHtml(update.latest || "")} is available</div>
+      <div class="mt-1">This server is running ${escapeHtml(update.current || "an untagged checkout")}.
+        To install it, double-click <span class="font-mono">update_server.bat</span> in the Kudde
+        folder on this PC. It restarts the server, so do it when nobody is recording in the field.</div>`;
+    notice.classList.remove("hidden");
+  } else if (update.signature && update.signature !== "ok") {
+    // A check that has been failing since April looks exactly like "no
+    // updates" unless it says so - which is the whole reason the check
+    // writes its failures down rather than only its successes.
+    notice.className = "rounded-xl p-3 shadow text-sm bg-red-50 border border-red-300 text-red-900";
+    notice.innerHTML = `
+      <div class="font-semibold"><i class="fa-solid fa-triangle-exclamation"></i>
+        The update check could not verify the newest release</div>
+      <div class="mt-1">${update.signature === "no-pubkey"
+        ? "This PC does not have the Kudde release key, so it cannot tell a genuine release from a tampered one."
+        : "The newest release is not signed by the key this server trusts."}
+        Nothing has been installed. See UPDATING.md before doing anything by hand.</div>`;
+    notice.classList.remove("hidden");
+  }
+}
+
+// ---------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------
 
@@ -302,6 +356,9 @@ async function init() {
 
   await loadAnimals();
   await loadDashboard();
+  // Last, and not awaited by anything above it: the herd is what this screen
+  // is for, and a slow or missing version endpoint must not hold it up.
+  loadServerVersion().catch(() => {});
   updateSyncStatusPill();
 }
 
