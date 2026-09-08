@@ -1,0 +1,47 @@
+# Runs the backend suite on every pull request, and on main.
+#
+# Two versions on purpose. 3.11 is what install.ps1 downloads and what every
+# fresh farm therefore ends up on; 3.9 is the floor that same installer
+# accepts ("Checking for Python 3.9+"), so a farm that already had Python
+# runs whatever it had. Testing only the version this was written on would
+# let a 3.10+ annotation through and break the install on exactly the farms
+# nobody has in front of them.
+name: tests
+
+# Pull requests, plus main itself. Not `push` on every branch: a branch with
+# a PR open would then run the whole matrix twice for one commit, once for
+# the push and once for the PR, and both would sit in the checks list.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    strategy:
+      # Both versions always report. Cancelling the sibling on the first
+      # failure hides whether a break is version-specific, which is the one
+      # thing this matrix exists to tell us.
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements-dev.txt
+
+      - name: Run the tests
+        # From backend/, because pytest.ini and the tests' imports (`import
+        # db`, `import migrate`) both assume that is the root - the same
+        # place a developer runs them from.
+        working-directory: backend
+        run: python -m pytest -v
