@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kudde</title>
+<link rel="icon" href="field/icons/icon-192.png">
+<link rel="apple-touch-icon" href="field/icons/icon-180.png">
+<meta name="theme-color" content="#0A2F6B">
+<script src="shared/tailwind.js"></script>
+<link rel="stylesheet" href="shared/vendor/fontawesome/css/all.min.css">
+<link rel="stylesheet" href="shared/styles.css">
+</head>
+<!--
+  Which screen am I? Kudde has no sign-in and no device setup, so this page
+  is only ever a signpost: the two apps live at /field/ and /admin/ and the
+  installer prints both addresses, but the address somebody actually types
+  into a phone on the farm wifi is the bare server one. Without this page
+  that lands on a bare 404 from the static-file mount, which reads as "the
+  server is down" rather than "you are one word short".
+
+  Deliberately not Boord's frontend/index.html, which is a device-setup
+  wizard: it has to ask which device this is and route by the role the
+  server has recorded for it. Kudde has no devices to tell apart.
+-->
+<body class="bg-slate-100 min-h-screen flex items-center justify-center p-4">
+
+<div class="w-full max-w-sm">
+  <div class="text-center mb-6">
+    <div class="text-3xl font-bold" style="color: var(--kudde-blue)">Kudde</div>
+    <div class="text-sm text-slate-500">Herd records</div>
+  </div>
+
+  <a href="field/" class="block bg-white rounded-2xl shadow p-4 mb-3 flex items-center gap-4">
+    <i class="fa-solid fa-cow text-2xl w-8 text-center" style="color: var(--kudde-blue)"></i>
+    <div>
+      <div class="font-semibold text-lg">Field</div>
+      <div class="text-sm text-slate-500">Search animals, record events. Works with no signal.</div>
+    </div>
+  </a>
+
+  <a href="admin/" class="block bg-white rounded-2xl shadow p-4 flex items-center gap-4">
+    <i class="fa-solid fa-desktop text-2xl w-8 text-center" style="color: var(--kudde-blue)"></i>
+    <div>
+      <div class="font-semibold text-lg">Admin</div>
+      <div class="text-sm text-slate-500">Dashboard, full herd table, corrections.</div>
+    </div>
+  </a>
+
+  <p class="text-xs text-slate-400 text-center mt-6">
+    Add the screen you use to your home screen and it opens like an app.
+  </p>
+</div>
+
+</body>
+</html>

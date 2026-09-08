@@ -7,7 +7,7 @@ const API_BASE = "";
 const Kudde = {
   // Bump on every deploy that touches frontend code, shown in each screen's
   // header - useful given the service workers cache the shell first.
-  VERSION: "0.1",
+  VERSION: "0.2",
 
   // A device whose WiFi is up but that cannot actually reach the farm server
   // gets no error from fetch() - the request just hangs until the OS gives
@@ -92,9 +92,23 @@ const Kudde = {
       else document.body.prepend(el);
     }
     el.innerHTML = `<i class="fa-solid fa-wifi"></i> ${message}`;
-    window.addEventListener("offline", () => Kudde.setOffline(true));
-    window.addEventListener("online", () => Kudde.setOffline(false));
-    if (!navigator.onLine) Kudde._offline = true;
+
+    // Registered once, however many times this is called. They used to be
+    // added on every call, so a screen that re-ran its setup accumulated a
+    // fresh pair of listeners each time and fired onOfflineChange once per
+    // registration on the next flip.
+    if (!Kudde._offlineListenersBound) {
+      Kudde._offlineListenersBound = true;
+      window.addEventListener("offline", () => Kudde.setOffline(true));
+      window.addEventListener("online", () => Kudde.setOffline(false));
+    }
+
+    // Through setOffline rather than by assigning _offline directly, so a
+    // screen that starts up with the radio already off gets the same
+    // onOfflineChange callback it would get from a flip. Assigning the flag
+    // here left setOffline(true) with nothing to do when the first request
+    // then failed, and the screen's own status pill was never told.
+    Kudde.setOffline(!navigator.onLine);
     el.classList.toggle("hidden", !Kudde._offline);
   },
 

@@ -2,12 +2,32 @@ from datetime import date, datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import field_validator
 from sqlmodel import Session, SQLModel, select
 
 from db import get_session
 from models import Animal, AnimalSex, AnimalStatus
 
 router = APIRouter(prefix="/api/animals", tags=["animals"])
+
+
+def normalise_tag(value: Optional[str]) -> Optional[str]:
+    """An ear tag as it should be stored: trimmed, or None if there is
+    nothing left.
+
+    The tag is this app's identity key - it is what the unique index is on,
+    what every event is recorded against, and what a farmer reads off the
+    animal. Both front ends already .trim() before sending, so nothing
+    normal reaches here untrimmed; what does is the offline outbox replaying
+    an entry captured by an older build, and any other client. Without this
+    " A1 " lands beside "A1" as a second animal that looks identical on
+    every screen and cannot be told apart, and "" lands as an animal with no
+    tag at all - both confirmed against the API before this was added.
+    """
+    if value is None:
+        return None
+    trimmed = value.strip()
+    return trimmed or None
 
 
 # Plain (non-table) input schemas, deliberately not `Animal` itself.
@@ -26,6 +46,21 @@ class AnimalCreate(SQLModel):
     sire_tag: Optional[str] = None
     dam_tag: Optional[str] = None
 
+    @field_validator("tag")
+    @classmethod
+    def _tag_is_a_tag(cls, value: str) -> str:
+        tag = normalise_tag(value)
+        if tag is None:
+            raise ValueError("a tag number is required")
+        return tag
+
+    # Parentage is stored as free text rather than a foreign key (see
+    # models.py), so nothing downstream would ever catch a stray space here.
+    @field_validator("sire_tag", "dam_tag")
+    @classmethod
+    def _tidy_parent_tag(cls, value: Optional[str]) -> Optional[str]:
+        return normalise_tag(value)
+
 
 class AnimalUpdate(SQLModel):
     name: Optional[str] = None
@@ -35,6 +70,11 @@ class AnimalUpdate(SQLModel):
     sire_tag: Optional[str] = None
     dam_tag: Optional[str] = None
     status: Optional[AnimalStatus] = None
+
+    @field_validator("sire_tag", "dam_tag")
+    @classmethod
+    def _tidy_parent_tag(cls, value: Optional[str]) -> Optional[str]:
+        return normalise_tag(value)
 
 
 @router.get("")
