@@ -21,9 +21,13 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = $PSScriptRoot
 $BackendDir = Join-Path $RepoRoot "backend"
 $VenvDir = Join-Path $BackendDir ".venv"
-# Boord's own server defaults to 8000 - a different port so both can run on
-# the same farm PC without a conflict, one install untouched by the other.
-$Port = 8010
+# A distinct port from every other app that might already be on this farm
+# PC. Boord defaults to 8000; Boord Owner and Boord Notes have been seen
+# running as 8010 and 8020 on a real farm server - Kudde nearly collided
+# with Boord Owner over 8010 on exactly that kind of shared box before this
+# was caught, so 8030 continues the sequence rather than reusing a number
+# any sibling app might already hold.
+$Port = 8030
 $TaskName = "Kudde Server"
 $FirewallRuleName = "Kudde Server"
 $PythonVersion = "3.11.9"
@@ -342,11 +346,17 @@ cd /d "$BackendDir"
     # Poll until it responds rather than sleeping a fixed few seconds and
     # declaring success - a server that died on startup (missing dependency,
     # port already in use) should say so, not look identical to a slow one.
+    #
+    # Poll /healthz rather than /field/ or /admin/ - both now refuse anything
+    # that didn't arrive over Tailscale, which this PC's own console never
+    # has until Tailscale is set up (see the notice below). /healthz is the
+    # one address that stays open everywhere, precisely so this check can
+    # tell "the process died" apart from "Tailscale isn't set up yet".
     $serverUp = $false
     for ($i = 0; $i -lt 20; $i++) {
         Start-Sleep -Seconds 1
         try {
-            $resp = Invoke-WebRequest -Uri "http://localhost:$Port/field/" -UseBasicParsing -TimeoutSec 3
+            $resp = Invoke-WebRequest -Uri "http://localhost:$Port/healthz" -UseBasicParsing -TimeoutSec 3
             if ($resp.StatusCode -eq 200) { $serverUp = $true; break }
         } catch { }
     }
@@ -359,32 +369,26 @@ cd /d "$BackendDir"
         Write-Warn "by the Scheduled Task."
     }
 
-    # --- Step 11: Report the address ---
-    Write-Step "Finding this PC's network address..."
-    $ip = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-        Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" -and $_.PrefixOrigin -ne "WellKnown" } |
-        Select-Object -First 1 -ExpandProperty IPAddress
+    # --- Step 11: Say how to reach it ---
+    # No IPv4 address is printed any more, deliberately: this PC's LAN
+    # address no longer opens anything, so printing it would send the farm
+    # to an address that refuses them.
 
     Write-Host ""
     Write-Host "================================================" -ForegroundColor Cyan
     Write-Host " Setup complete!" -ForegroundColor Green
     Write-Host "================================================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host " On this PC:"
-    Write-Host "   Field:  http://localhost:$Port/field/"
-    Write-Host "   Admin:  http://localhost:$Port/admin/"
-    if ($ip) {
-        Write-Host ""
-        Write-Host " From a phone or another PC on this network:"
-        Write-Host "   Field:  http://$ip`:$Port/field/"
-        Write-Host "   Admin:  http://$ip`:$Port/admin/"
-    } else {
-        Write-Warn "Could not detect this PC's network address automatically - run 'ipconfig' and look for 'IPv4 Address'."
-    }
+    Write-Host " There is no sign-in, and no address on the farm wifi works - not"
+    Write-Host " even http://localhost:$Port/ on this PC itself. Field and Admin"
+    Write-Host " both answer only over Tailscale now."
     Write-Host ""
-    Write-Host " There is no sign-in - both screens open straight up. Admin is not"
-    Write-Host " restricted to any particular network the way Boord's is; anyone on"
-    Write-Host " this network who opens the Admin address can edit the herd."
+    Write-Host " Set up Tailscale on this PC (tailscale.com/download) and on every"
+    Write-Host " phone or tablet that needs Field or Admin, signed into the same"
+    Write-Host " tailnet. Once this PC is connected, run 'tailscale status' here to"
+    Write-Host " find its https://<name>.<tailnet>.ts.net/ address, then open that"
+    Write-Host " address with /field/ or /admin/ appended from any connected device -"
+    Write-Host " including this one; localhost does not get an exemption."
     Write-Host ""
     Write-Host " The server will now start automatically every time this PC turns on."
 

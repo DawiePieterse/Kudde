@@ -305,13 +305,13 @@ if %errorLevel% equ 0 (
     :: it spawned can outlive it and carry on serving requests with the
     :: database open - which is the one thing that must not be true while
     :: migrations run. stop_server.ps1 ends the task and then checks port
-    :: 8010 is actually free, and refuses rather than guessing.
+    :: 8030 is actually free, and refuses rather than guessing.
     powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0stop_server.ps1"
     if errorlevel 1 (
         echo.
         echo *** THE SERVER COULD NOT BE STOPPED ***
         echo.
-        echo Something is still listening on port 8010, so the database is
+        echo Something is still listening on port 8030, so the database is
         echo still open. Migrating now would rewrite tables underneath a
         echo running server, and it would not even report an error.
         echo.

@@ -139,7 +139,7 @@ Double-click **`update_server.bat`**. In order, it:
    half-installed update is worse than no update;
 8. **stops the server properly** - not just `schtasks /end`, which ends the
    launcher while the uvicorn process it started can carry on serving with
-   the database open. `stop_server.ps1` checks port 8010 is genuinely free
+   the database open. `stop_server.ps1` checks port 8030 is genuinely free
    and refuses rather than guessing;
 9. **copies the database**, into `data\backups\pre_migration_*.db`, and
    refuses to migrate if that copy could not be written;
@@ -306,8 +306,12 @@ the key it trusts - which is the mechanism working, not a fault.
 ## Checking what a server is running
 
 ```
-http://<farm-pc>:8010/api/version
+https://<farm-pc>.<tailnet>.ts.net/api/version
 ```
+
+Over Tailscale, from any connected device. The farm-wifi address and this
+PC's own `localhost` are both refused now - `/healthz` is the only thing
+that answers off the tailnet, and it deliberately says nothing but `ok`.
 
 ```json
 {

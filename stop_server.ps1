@@ -10,7 +10,7 @@
 # caller must not touch the database.
 
 param(
-    [int]$Port = 8010,
+    [int]$Port = 8030,
     [string]$TaskName = "Kudde Server",
     [int]$TimeoutSeconds = 20
 )

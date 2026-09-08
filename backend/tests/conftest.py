@@ -20,6 +20,39 @@ os.environ["KUDDE_DATA_DIR"] = _TMP
 import db  # noqa: E402
 import main  # noqa: E402
 
+# Tailnet IPv4 lives in 100.64.0.0/10, which is what security.py accepts.
+TAILNET_PEER = ("100.64.0.1", 41234)
+LOOPBACK_PEER = ("127.0.0.1", 41234)
+FARM_WIFI_PEER = ("192.168.1.50", 41234)
+
+
+class FromPeer:
+    """Present the app with a chosen peer address.
+
+    Every request in this suite has to arrive from somewhere, because
+    security.py refuses anything that did not come over Tailscale - and
+    TestClient's transport reports a peer of ("testclient", 50000), which is
+    not an address at all, so the whole suite is refused by default.
+
+    Rewriting the ASGI scope is deliberate, and better than the two
+    alternatives: setting KUDDE_ALLOW_LOOPBACK would test the dev bypass
+    instead of the gate, and exempting the test client in main.py would put
+    a hole in production code to suit the tests. This changes only what the
+    transport reports, which is exactly what differs between a phone on the
+    tailnet and one on the farm wifi - the gate itself stays under test, and
+    test_security.py drives this same wrapper from the other addresses to
+    prove it still refuses them.
+    """
+
+    def __init__(self, app, peer=TAILNET_PEER):
+        self.app = app
+        self.peer = peer
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            scope = dict(scope, client=self.peer)
+        await self.app(scope, receive, send)
+
 # The two dates the "needs weighing" cutoff sits between. Written relative to
 # today rather than as fixed dates: _STALE_WEIGHT_DAYS is a rolling window,
 # so hardcoded dates would start failing on their own six months from now.
@@ -45,7 +78,7 @@ def client():
             os.remove(db.DB_PATH + suffix)
         except OSError:
             pass
-    with TestClient(main.app) as c:  # startup: run_migrations
+    with TestClient(FromPeer(main.app)) as c:  # startup: run_migrations
         yield c
 
 

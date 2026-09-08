@@ -1,11 +1,13 @@
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from migrate import run_migrations
 from routers import animals, dashboard, events, version
+from security import TAILSCALE_ONLY_MESSAGE, is_tailscale_client
 from version import prime as prime_version
 
 app = FastAPI(title="Kudde")
@@ -21,6 +23,37 @@ app.include_router(animals.router)
 app.include_router(events.router)
 app.include_router(dashboard.router)
 app.include_router(version.router)
+
+# The only thing that answers off Tailscale: proves the process is up
+# without telling a farm-wifi device or an AnyDesk console anything about
+# the herd. install.ps1's own post-install check depends on this - it runs
+# before Tailscale is necessarily configured, from this PC's own console,
+# which is otherwise refused exactly like anywhere else.
+_HEALTH_PATH = "/healthz"
+
+
+@app.get(_HEALTH_PATH)
+def healthz():
+    return {"status": "ok"}
+
+
+@app.middleware("http")
+async def kudde_is_not_on_the_farm_wifi(request: Request, call_next):
+    """Every request - Field and Admin alike - is refused unless it arrived
+    over Tailscale. See security.py for what "arrived over Tailscale" means
+    and why it takes two signals to tell.
+
+    A blanket check rather than one dependency per route: Field and Admin
+    share almost the entire API (list/add animals, record events, the
+    dashboard), so there is no non-admin slice of this app left to leave
+    open - gating routes individually would mean remembering to add the
+    dependency to every new endpoint rather than it being true by default.
+    """
+    if request.url.path == _HEALTH_PATH:
+        return await call_next(request)
+    if not is_tailscale_client(request):
+        return PlainTextResponse(TAILSCALE_ONLY_MESSAGE, status_code=403)
+    return await call_next(request)
 
 
 @app.on_event("startup")
