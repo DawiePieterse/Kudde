@@ -81,3 +81,17 @@ class Event(SQLModel, table=True):
     note: str = ""
     location: str = ""  # camp/paddock name - mainly for "movement" events
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Farm(SQLModel, table=True):
+    """One row per install - there's only one farm per Kudde server, so this
+    is a singleton always addressed by id=1 rather than a lookup. gps_lat/
+    gps_lng are what a future weather integration would key off: the farm's
+    single location, not a per-animal or per-camp one."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    farm_name: str = ""
+    farmer_name: str = ""
+    phone_number: str = ""
+    gps_lat: Optional[float] = None
+    gps_lng: Optional[float] = None
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

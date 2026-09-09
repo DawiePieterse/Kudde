@@ -10,6 +10,16 @@ const EVENT_ICON = { birth: "fa-baby", weight: "fa-weight-scale", treatment: "fa
 let animals = [];
 let dashboard = null;
 let editingTag = null; // null while the modal is adding a new animal
+let farm = null;
+let farmMap = null;
+let farmMarker = null;
+
+// Center of South Africa - shown until the farm has a saved location, or
+// none is set yet. Zoomed out enough that no farm needs to pan far to find
+// itself.
+const DEFAULT_MAP_CENTER = [-29.0, 24.0];
+const DEFAULT_MAP_ZOOM = 5;
+const PINNED_MAP_ZOOM = 13;
 
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -26,6 +36,13 @@ function wireTabs() {
       btn.classList.add("active");
       document.querySelectorAll(".tab-content").forEach((c) => c.classList.add("hidden"));
       document.getElementById(`tab-${btn.dataset.tab}`).classList.remove("hidden");
+      // Leaflet measures its container on init, so the map can only be
+      // created once its tab is actually visible - doing it eagerly on
+      // page load gives it a 0x0 box and every tile ends up misplaced.
+      if (btn.dataset.tab === "settings") {
+        ensureFarmMap();
+        farmMap.invalidateSize();
+      }
     });
   });
 }
@@ -331,6 +348,122 @@ async function loadServerVersion() {
 }
 
 // ---------------------------------------------------------------------
+// Settings tab
+// ---------------------------------------------------------------------
+
+async function loadFarm() {
+  try {
+    farm = await Kudde.api("/api/farm");
+    Kudde.setOffline(false);
+  } catch (e) {
+    if (!Kudde.isNetworkError(e)) throw e;
+    Kudde.setOffline(true);
+    return;
+  }
+  fillFarmForm(farm);
+}
+
+function fillFarmForm(f) {
+  document.getElementById("fFarmName").value = f?.farm_name || "";
+  document.getElementById("fFarmerName").value = f?.farmer_name || "";
+  document.getElementById("fPhoneNumber").value = f?.phone_number || "";
+  document.getElementById("fGpsLat").value = f?.gps_lat ?? "";
+  document.getElementById("fGpsLng").value = f?.gps_lng ?? "";
+  if (farmMap) placeMarker(f?.gps_lat, f?.gps_lng, false);
+}
+
+// Built the first time the Settings tab is opened (see wireTabs) rather
+// than at page load, because Leaflet sizes itself off its container and
+// that container is display:none - and therefore 0x0 - until then.
+function ensureFarmMap() {
+  if (farmMap) return;
+  const startLat = farm?.gps_lat ?? DEFAULT_MAP_CENTER[0];
+  const startLng = farm?.gps_lng ?? DEFAULT_MAP_CENTER[1];
+  const startZoom = (farm?.gps_lat != null) ? PINNED_MAP_ZOOM : DEFAULT_MAP_ZOOM;
+
+  farmMap = L.map("farmMap").setView([startLat, startLng], startZoom);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom: 19,
+  }).addTo(farmMap);
+
+  farmMap.on("click", (e) => setGpsFields(e.latlng.lat, e.latlng.lng));
+
+  if (farm?.gps_lat != null && farm?.gps_lng != null) {
+    placeMarker(farm.gps_lat, farm.gps_lng, false);
+  }
+}
+
+// Moves (or creates) the pin. recenter=false is used when re-rendering an
+// already-loaded location so opening the tab doesn't yank the view away
+// from wherever the farmer last looked.
+function placeMarker(lat, lng, recenter) {
+  if (lat == null || lng == null) {
+    if (farmMarker) { farmMap.removeLayer(farmMarker); farmMarker = null; }
+    return;
+  }
+  if (farmMarker) {
+    farmMarker.setLatLng([lat, lng]);
+  } else {
+    farmMarker = L.marker([lat, lng], { draggable: true }).addTo(farmMap);
+    farmMarker.on("dragend", () => {
+      const pos = farmMarker.getLatLng();
+      setGpsFields(pos.lat, pos.lng, false);
+    });
+  }
+  if (recenter) farmMap.setView([lat, lng], Math.max(farmMap.getZoom(), PINNED_MAP_ZOOM));
+}
+
+// Single entry point for "the location changed" - keeps the lat/lng
+// inputs and the map pin in sync regardless of whether the change came
+// from a map click, a marker drag, geolocation, or typing in the boxes.
+function setGpsFields(lat, lng, recenter = true) {
+  document.getElementById("fGpsLat").value = lat.toFixed(6);
+  document.getElementById("fGpsLng").value = lng.toFixed(6);
+  placeMarker(lat, lng, recenter);
+}
+
+function useCurrentLocation() {
+  if (!navigator.geolocation) { Kudde.toast("Location is not available on this device"); return; }
+  navigator.geolocation.getCurrentPosition(
+    (pos) => { ensureFarmMap(); setGpsFields(pos.coords.latitude, pos.coords.longitude); },
+    () => Kudde.toast("Could not get the current location"),
+  );
+}
+
+// Typing coordinates directly (rather than using the map or geolocation)
+// should still move the pin, once both fields parse to a real number.
+function syncMarkerFromInputs() {
+  if (!farmMap) return;
+  const lat = parseFloat(document.getElementById("fGpsLat").value);
+  const lng = parseFloat(document.getElementById("fGpsLng").value);
+  if (!isNaN(lat) && !isNaN(lng)) placeMarker(lat, lng, true);
+}
+
+async function saveFarm() {
+  const lat = document.getElementById("fGpsLat").value;
+  const lng = document.getElementById("fGpsLng").value;
+  const payload = {
+    farm_name: document.getElementById("fFarmName").value.trim(),
+    farmer_name: document.getElementById("fFarmerName").value.trim(),
+    phone_number: document.getElementById("fPhoneNumber").value.trim(),
+    gps_lat: lat === "" ? null : parseFloat(lat),
+    gps_lng: lng === "" ? null : parseFloat(lng),
+  };
+
+  try {
+    farm = await Kudde.api("/api/farm", { method: "PUT", body: payload });
+    Kudde.setOffline(false);
+  } catch (e) {
+    if (Kudde.isNetworkError(e)) { Kudde.setOffline(true); Kudde.toast("Offline - could not save"); return; }
+    Kudde.toast(Kudde.errorDetail(e));
+    return;
+  }
+
+  Kudde.toast("Settings saved");
+}
+
+// ---------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------
 
@@ -350,12 +483,17 @@ async function init() {
   document.getElementById("cancelAnimalBtn").addEventListener("click", closeAnimalModal);
   document.getElementById("saveAnimalBtn").addEventListener("click", saveAnimal);
   document.getElementById("addEventBtn").addEventListener("click", addEvent);
+  document.getElementById("useMyLocationBtn").addEventListener("click", useCurrentLocation);
+  document.getElementById("saveFarmBtn").addEventListener("click", saveFarm);
+  document.getElementById("fGpsLat").addEventListener("change", syncMarkerFromInputs);
+  document.getElementById("fGpsLng").addEventListener("change", syncMarkerFromInputs);
 
   KWPTR.attach(async () => { await loadAnimals(); await loadDashboard(); });
   window.addEventListener("online", async () => { await loadAnimals(); await loadDashboard(); });
 
   await loadAnimals();
   await loadDashboard();
+  await loadFarm();
   // Last, and not awaited by anything above it: the herd is what this screen
   // is for, and a slow or missing version endpoint must not hold it up.
   loadServerVersion().catch(() => {});
