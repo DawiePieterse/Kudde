@@ -9,7 +9,7 @@ from db import get_session
 from models import Animal, AnimalStatus, Event, EventKind, Farm
 from routers.animals import normalise_tag
 from routers.settings import SINGLETON_ID as FARM_ID
-from weather import fetch_daily_weather
+from weather import DailyWeather, fetch_daily_weather
 
 router = APIRouter(prefix="/api", tags=["events"])
 
@@ -96,6 +96,28 @@ class BulkMovementCreate(SQLModel):
     client_uuid: Optional[str] = None
 
 
+def _weather_for(session: Session, on: date) -> Optional[DailyWeather]:
+    """The day's weather at the farm's position, or None when no position is
+    set or the lookup failed.
+
+    One place on purpose: a second way of recording an event is exactly how
+    weather quietly stops being carried, which is what the camp move below
+    did until it was pointed at this.
+    """
+    farm = session.get(Farm, FARM_ID)
+    if farm is None or farm.gps_lat is None or farm.gps_lng is None:
+        return None
+    return fetch_daily_weather(farm.gps_lat, farm.gps_lng, on)
+
+
+def _stamp_weather(event: Event, weather: Optional[DailyWeather]) -> None:
+    if weather is None:
+        return
+    event.weather_temp_max = weather.temp_max
+    event.weather_temp_min = weather.temp_min
+    event.weather_precipitation = weather.precipitation
+
+
 def _animal_by_tag(session: Session, tag: str) -> Animal:
     animal = session.exec(select(Animal).where(Animal.tag == normalise_tag(tag))).first()
     if animal is None:
@@ -134,13 +156,7 @@ def create_event(payload: EventCreate, session: Session = Depends(get_session)):
     # After the client_uuid check above, never before it: a replay of an
     # event that already landed returns the stored one without going near
     # the network, so a slow Open-Meteo cannot be walked into once per retry.
-    farm = session.get(Farm, FARM_ID)
-    if farm is not None and farm.gps_lat is not None and farm.gps_lng is not None:
-        weather = fetch_daily_weather(farm.gps_lat, farm.gps_lng, payload.event_date)
-        if weather is not None:
-            event.weather_temp_max = weather.temp_max
-            event.weather_temp_min = weather.temp_min
-            event.weather_precipitation = weather.precipitation
+    _stamp_weather(event, _weather_for(session, payload.event_date))
 
     session.add(event)
 
@@ -196,15 +212,27 @@ def create_bulk_movement(payload: BulkMovementCreate, session: Session = Depends
         }
 
     events = []
+    fresh = []
     for animal in animals:
         key = _batch_member_uuid(payload.client_uuid, animal.id) if payload.client_uuid else None
         if key is not None and key in already:
-            # Already on file from an earlier attempt at this same batch.
+            # Already on file from an earlier attempt at this same batch,
+            # weather and all - leave it exactly as it was recorded.
             events.append(already[key])
             continue
-        events.append(Event(animal_id=animal.id, kind=EventKind.movement,
-                            event_date=payload.event_date, location=payload.location,
-                            note=payload.note, client_uuid=key))
+        event = Event(animal_id=animal.id, kind=EventKind.movement,
+                      event_date=payload.event_date, location=payload.location,
+                      note=payload.note, client_uuid=key)
+        events.append(event)
+        fresh.append(event)
+
+    if fresh:
+        # One lookup for the whole camp: every animal in the batch shares the
+        # farm's position and the move's date, so asking per animal would be
+        # the same answer fetched once per head of cattle.
+        weather = _weather_for(session, payload.event_date)
+        for event in fresh:
+            _stamp_weather(event, weather)
 
     session.add_all(events)
     session.commit()
