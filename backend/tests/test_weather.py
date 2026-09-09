@@ -137,3 +137,42 @@ def test_a_failure_is_swallowed_rather_than_raised(monkeypatch):
 def test_an_answer_without_the_daily_block_is_not_a_crash(monkeypatch):
     _stub_httpx(monkeypatch, {"error": True, "reason": "out of range"})
     assert weather.fetch_daily_weather(-33.9, 18.4, date.today()) is None
+
+
+# --- a whole camp moving at once --------------------------------------------
+
+def test_a_camp_move_carries_the_weather_too(client, looked_up):
+    """A move recorded one animal at a time carried weather; the same move
+    recorded as a camp did not, until both went through one seam."""
+    _at(client)
+    for tag in ("A1", "A2", "A3"):
+        client.post("/api/animals", json={"tag": tag, "sex": "female"})
+    r = client.post("/api/events/movement/bulk",
+                    json={"tags": ["A1", "A2", "A3"], "event_date": RECENTLY.isoformat(),
+                          "location": "Onder-kamp", "note": "after the rain"})
+    assert r.status_code == 200, r.text
+    assert [e["weather_precipitation"] for e in r.json()] == [4.5, 4.5, 4.5]
+    # One lookup for the camp, not one per head of cattle.
+    assert looked_up == [(-33.9249, 18.4241, RECENTLY)]
+
+
+def test_a_replayed_camp_move_is_not_looked_up_again(client, looked_up):
+    _at(client)
+    for tag in ("A1", "A2"):
+        client.post("/api/animals", json={"tag": tag, "sex": "female"})
+    body = {"tags": ["A1", "A2"], "event_date": RECENTLY.isoformat(),
+            "location": "Onder-kamp", "client_uuid": "batch-1"}
+    first = client.post("/api/events/movement/bulk", json=body)
+    again = client.post("/api/events/movement/bulk", json=body)
+    assert [e["id"] for e in again.json()] == [e["id"] for e in first.json()]
+    assert len(looked_up) == 1
+
+
+def test_a_camp_move_with_no_farm_position_still_moves_the_camp(client, looked_up):
+    client.post("/api/animals", json={"tag": "A1", "sex": "female"})
+    r = client.post("/api/events/movement/bulk",
+                    json={"tags": ["A1"], "event_date": RECENTLY.isoformat(),
+                          "location": "Onder-kamp"})
+    assert r.status_code == 200, r.text
+    assert r.json()[0]["weather_temp_max"] is None
+    assert looked_up == []

@@ -9,9 +9,33 @@ from db import get_session
 from models import Animal, AnimalStatus, Event, EventKind, Farm
 from routers.animals import normalise_tag
 from routers.settings import SINGLETON_ID as FARM_ID
-from weather import fetch_daily_weather
+from weather import DailyWeather, fetch_daily_weather
 
 router = APIRouter(prefix="/api", tags=["events"])
+
+# Locations a camp move needs to reason about: only movement and birth
+# events actually place an animal somewhere the herd grazes (a weight or
+# treatment event's location, if ever set, is incidental to where it
+# happened, not a place the animal is considered to live).
+_LOCATION_EVENT_KINDS = [EventKind.movement, EventKind.birth]
+
+
+def _current_locations(session: Session) -> dict:
+    """Latest known camp/location per animal_id, from movement/birth events
+    that actually recorded one. Powers both the /locations picker and any
+    "where is this animal now" question - there's no stored current-location
+    field, it's always derived from event history."""
+    rows = session.exec(
+        select(Event.animal_id, Event.location)
+        .where(Event.kind.in_(_LOCATION_EVENT_KINDS))
+        .where(Event.location != "")
+        .order_by(Event.animal_id, Event.event_date.desc(), Event.id.desc())
+    ).all()
+    latest: dict = {}
+    for animal_id, location in rows:
+        latest.setdefault(animal_id, location)  # first row per animal_id is the latest, by the order_by above
+    return latest
+
 
 # What Animal.status becomes when an event of this kind is recorded, if
 # anything - a death or sale event is also the moment the animal leaves the
@@ -59,6 +83,41 @@ class EventCreate(SQLModel):
         return self
 
 
+class BulkMovementCreate(SQLModel):
+    """Move a whole camp at once: the normal case is every animal in a
+    field moving together, not one tag typed in at a time."""
+    tags: list[str]
+    event_date: date
+    location: str
+    note: str = ""
+    # The id the capturing device gave this batch. Optional for the same
+    # reason it is on EventCreate: the admin app has no outbox and sends
+    # none. See create_bulk_movement() for what it is derived into.
+    client_uuid: Optional[str] = None
+
+
+def _weather_for(session: Session, on: date) -> Optional[DailyWeather]:
+    """The day's weather at the farm's position, or None when no position is
+    set or the lookup failed.
+
+    One place on purpose: a second way of recording an event is exactly how
+    weather quietly stops being carried, which is what the camp move below
+    did until it was pointed at this.
+    """
+    farm = session.get(Farm, FARM_ID)
+    if farm is None or farm.gps_lat is None or farm.gps_lng is None:
+        return None
+    return fetch_daily_weather(farm.gps_lat, farm.gps_lng, on)
+
+
+def _stamp_weather(event: Event, weather: Optional[DailyWeather]) -> None:
+    if weather is None:
+        return
+    event.weather_temp_max = weather.temp_max
+    event.weather_temp_min = weather.temp_min
+    event.weather_precipitation = weather.precipitation
+
+
 def _animal_by_tag(session: Session, tag: str) -> Animal:
     animal = session.exec(select(Animal).where(Animal.tag == normalise_tag(tag))).first()
     if animal is None:
@@ -97,13 +156,7 @@ def create_event(payload: EventCreate, session: Session = Depends(get_session)):
     # After the client_uuid check above, never before it: a replay of an
     # event that already landed returns the stored one without going near
     # the network, so a slow Open-Meteo cannot be walked into once per retry.
-    farm = session.get(Farm, FARM_ID)
-    if farm is not None and farm.gps_lat is not None and farm.gps_lng is not None:
-        weather = fetch_daily_weather(farm.gps_lat, farm.gps_lng, payload.event_date)
-        if weather is not None:
-            event.weather_temp_max = weather.temp_max
-            event.weather_temp_min = weather.temp_min
-            event.weather_precipitation = weather.precipitation
+    _stamp_weather(event, _weather_for(session, payload.event_date))
 
     session.add(event)
 
@@ -119,6 +172,92 @@ def create_event(payload: EventCreate, session: Session = Depends(get_session)):
     session.commit()
     session.refresh(event)
     return event
+
+
+def _batch_member_uuid(client_uuid: str, animal_id: int) -> str:
+    """The client_uuid stored on one animal's event within a batch.
+
+    Event.client_uuid is unique per row, so a batch cannot store the same id
+    on all of its events. Deriving one per animal keeps the column doing its
+    job for every row a bulk move writes, and makes a batch that half landed
+    - some rows committed, then the connection dropped - resolve on replay
+    rather than duplicating what did land.
+    """
+    return f"{client_uuid}:{animal_id}"
+
+
+@router.post("/events/movement/bulk")
+def create_bulk_movement(payload: BulkMovementCreate, session: Session = Depends(get_session)):
+    """Record the same movement for every listed animal in one call, so a
+    camp move lands as one save instead of one request per tag. Tags are
+    resolved up front - if any one of them doesn't exist, nothing is
+    written, rather than moving half a camp and failing partway through.
+
+    Idempotent on client_uuid, exactly as create_event() is and for the same
+    reason: the field app queues a whole camp move in its outbox and replays
+    it after an 8-second timeout, so a slow-but-landed request would
+    otherwise move the camp twice - a duplicate movement per animal, which
+    is what _current_locations() reads to decide where the herd is.
+    """
+    if not payload.tags:
+        raise HTTPException(400, "At least one tag is required")
+    animals = [_animal_by_tag(session, tag) for tag in payload.tags]
+
+    already = {}
+    if payload.client_uuid:
+        keys = [_batch_member_uuid(payload.client_uuid, a.id) for a in animals]
+        already = {
+            event.client_uuid: event
+            for event in session.exec(select(Event).where(Event.client_uuid.in_(keys))).all()
+        }
+
+    events = []
+    fresh = []
+    for animal in animals:
+        key = _batch_member_uuid(payload.client_uuid, animal.id) if payload.client_uuid else None
+        if key is not None and key in already:
+            # Already on file from an earlier attempt at this same batch,
+            # weather and all - leave it exactly as it was recorded.
+            events.append(already[key])
+            continue
+        event = Event(animal_id=animal.id, kind=EventKind.movement,
+                      event_date=payload.event_date, location=payload.location,
+                      note=payload.note, client_uuid=key)
+        events.append(event)
+        fresh.append(event)
+
+    if fresh:
+        # One lookup for the whole camp: every animal in the batch shares the
+        # farm's position and the move's date, so asking per animal would be
+        # the same answer fetched once per head of cattle.
+        weather = _weather_for(session, payload.event_date)
+        for event in fresh:
+            _stamp_weather(event, weather)
+
+    session.add_all(events)
+    session.commit()
+    for event in events:
+        session.refresh(event)
+    return events
+
+
+@router.get("/locations")
+def list_locations(session: Session = Depends(get_session)):
+    """Every camp/location currently holding at least one alive animal,
+    grouped with who's there - what the "move whole camp" picker uses so a
+    location can be selected without typing out every tag in it."""
+    latest_location = _current_locations(session)
+    alive = session.exec(select(Animal).where(Animal.status == AnimalStatus.alive)).all()
+    grouped: dict = {}
+    for animal in alive:
+        location = latest_location.get(animal.id)
+        if not location:
+            continue
+        grouped.setdefault(location, []).append({"tag": animal.tag, "name": animal.name})
+    return [
+        {"location": location, "animals": sorted(members, key=lambda a: a["tag"])}
+        for location, members in sorted(grouped.items())
+    ]
 
 
 @router.get("/animals/{tag}/events")

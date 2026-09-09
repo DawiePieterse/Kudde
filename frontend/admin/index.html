@@ -90,6 +90,9 @@
         <option value="dead">Dead</option>
         <option value="sold">Sold</option>
       </select>
+      <button id="moveCampBtn" class="rounded-lg px-4 py-2 font-semibold whitespace-nowrap bg-slate-800 text-white">
+        <i class="fa-solid fa-arrows-turn-right"></i> Move camp
+      </button>
       <button id="addAnimalBtn" class="kudde-btn-primary rounded-lg px-4 py-2 font-semibold whitespace-nowrap">
         <i class="fa-solid fa-plus"></i> Add animal
       </button>
@@ -254,6 +257,34 @@
         <button id="addEventBtn" class="col-span-2 kudde-btn-primary rounded-lg py-2 font-semibold">
           <i class="fa-solid fa-plus"></i> Record event
         </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Move camp modal -->
+<div id="moveModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-40 overflow-y-auto">
+  <div class="bg-white rounded-xl p-5 w-full max-w-sm my-6">
+    <div id="moveLocationsView">
+      <div class="font-bold text-lg mb-1">Move camp</div>
+      <div class="text-xs text-slate-500 mb-3">Pick the camp everyone is moving from</div>
+      <div id="moveLocationsList" class="space-y-2 max-h-80 overflow-y-auto"></div>
+      <div id="moveLocationsEmpty" class="hidden text-slate-400 text-sm py-4 text-center">No animals have a recorded location yet</div>
+      <button id="cancelMoveBtn" class="w-full rounded-lg py-2 bg-slate-100 mt-3">Cancel</button>
+    </div>
+    <div id="moveAnimalsView" class="hidden">
+      <div class="font-bold text-lg mb-1">Move from <span id="moveFromLocation"></span></div>
+      <div class="text-xs text-slate-500 mb-2">Uncheck any animal that isn't moving</div>
+      <div id="moveAnimalsList" class="space-y-1 max-h-40 overflow-y-auto mb-3 border border-slate-200 rounded-lg p-2"></div>
+      <label class="text-xs text-slate-500">Date *</label>
+      <input id="moveDate" type="date" class="w-full border border-slate-300 rounded-lg p-2 mb-2">
+      <label class="text-xs text-slate-500">New location *</label>
+      <input id="moveToLocation" type="text" class="w-full border border-slate-300 rounded-lg p-2 mb-2">
+      <label class="text-xs text-slate-500">Note</label>
+      <textarea id="moveNote" rows="2" class="w-full border border-slate-300 rounded-lg p-2 mb-2"></textarea>
+      <div class="flex gap-2 mt-3">
+        <button id="backMoveBtn" class="flex-1 rounded-lg py-2 bg-slate-100">Back</button>
+        <button id="confirmMoveBtn" class="flex-1 kudde-btn-primary rounded-lg py-2 font-semibold">Move</button>
       </div>
     </div>
   </div>

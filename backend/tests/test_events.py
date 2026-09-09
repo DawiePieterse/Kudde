@@ -171,3 +171,113 @@ def test_a_replay_does_not_re_apply_the_status_change(client):
     client.patch("/api/animals/A1", json={"status": "alive"})  # the admin corrects a mis-tap
     client.post("/api/events", json=body)                      # the outbox replays it
     assert client.get("/api/animals/A1").json()["status"] == "alive"
+
+
+# --- Moving a whole camp at once -------------------------------------------
+
+def _camp(client, tags, location, on=None):
+    """Put each tag in the herd and place it in `location`."""
+    for tag in tags:
+        client.post("/api/animals", json={"tag": tag, "sex": "female"})
+        client.post("/api/events", json={"tag": tag, "kind": "movement",
+                                         "event_date": (on or LONG_AGO).isoformat(),
+                                         "location": location})
+
+
+def test_a_camp_moves_in_one_call(client):
+    _camp(client, ["A1", "A2", "A3"], "Bo-kamp")
+    r = client.post("/api/events/movement/bulk",
+                    json={"tags": ["A1", "A2", "A3"], "event_date": RECENTLY.isoformat(),
+                          "location": "Onder-kamp", "note": "after the rain"})
+    assert r.status_code == 200, r.text
+    assert len(r.json()) == 3
+    for tag in ("A1", "A2", "A3"):
+        newest = client.get(f"/api/animals/{tag}/events").json()[0]
+        assert newest["kind"] == "movement" and newest["location"] == "Onder-kamp"
+
+
+def test_a_camp_move_naming_an_unknown_tag_moves_nobody(client):
+    """Resolved up front on purpose: moving half a camp and failing partway
+    leaves the herd recorded in two places at once."""
+    _camp(client, ["A1", "A2"], "Bo-kamp")
+    r = client.post("/api/events/movement/bulk",
+                    json={"tags": ["A1", "NOPE"], "event_date": RECENTLY.isoformat(),
+                          "location": "Onder-kamp"})
+    assert r.status_code == 404
+    assert client.get("/api/animals/A1/events").json()[0]["location"] == "Bo-kamp"
+
+
+def test_a_camp_move_needs_at_least_one_animal(client):
+    r = client.post("/api/events/movement/bulk",
+                    json={"tags": [], "event_date": RECENTLY.isoformat(), "location": "Onder-kamp"})
+    assert r.status_code == 400
+
+
+def test_replaying_a_camp_move_moves_the_camp_once(client):
+    """The field app queues a camp move in its outbox and replays it after
+    an 8-second timeout, so a slow-but-landed request comes back. Without
+    an id per animal in the batch, every animal in the camp gains a second
+    identical movement - and where the herd IS is derived from exactly
+    those rows."""
+    _camp(client, ["A1", "A2"], "Bo-kamp")
+    body = {"tags": ["A1", "A2"], "event_date": RECENTLY.isoformat(),
+            "location": "Onder-kamp", "client_uuid": "batch-1"}
+
+    first = client.post("/api/events/movement/bulk", json=body)
+    replay = client.post("/api/events/movement/bulk", json=body)
+    assert first.status_code == replay.status_code == 200, replay.text
+    assert [e["id"] for e in first.json()] == [e["id"] for e in replay.json()]
+
+    for tag in ("A1", "A2"):
+        moves = [e for e in client.get(f"/api/animals/{tag}/events").json()
+                 if e["location"] == "Onder-kamp"]
+        assert len(moves) == 1, f"{tag} moved twice"
+
+
+def test_a_camp_move_half_landed_is_completed_by_the_replay(client):
+    """A batch that committed some rows and then lost the connection: the
+    replay has to add what is missing without duplicating what is not."""
+    _camp(client, ["A1", "A2"], "Bo-kamp")
+    client.post("/api/events/movement/bulk",
+                json={"tags": ["A1"], "event_date": RECENTLY.isoformat(),
+                      "location": "Onder-kamp", "client_uuid": "batch-1"})
+
+    r = client.post("/api/events/movement/bulk",
+                    json={"tags": ["A1", "A2"], "event_date": RECENTLY.isoformat(),
+                          "location": "Onder-kamp", "client_uuid": "batch-1"})
+    assert r.status_code == 200, r.text
+    for tag in ("A1", "A2"):
+        moves = [e for e in client.get(f"/api/animals/{tag}/events").json()
+                 if e["location"] == "Onder-kamp"]
+        assert len(moves) == 1, f"{tag} has {len(moves)} moves"
+
+
+def test_two_genuine_camp_moves_are_both_kept(client):
+    """Same camp, same day, no capture id - the admin app has no outbox and
+    sends none, and a camp really can be moved and moved back."""
+    _camp(client, ["A1"], "Bo-kamp")
+    for location in ("Onder-kamp", "Bo-kamp"):
+        r = client.post("/api/events/movement/bulk",
+                        json={"tags": ["A1"], "event_date": RECENTLY.isoformat(),
+                              "location": location})
+        assert r.status_code == 200, r.text
+    assert len(client.get("/api/animals/A1/events").json()) == 3
+
+
+def test_locations_group_the_alive_herd_by_where_it_is_now(client):
+    _camp(client, ["A1", "A2"], "Bo-kamp")
+    _camp(client, ["B1"], "Onder-kamp")
+    client.post("/api/events/movement/bulk",
+                json={"tags": ["A2"], "event_date": RECENTLY.isoformat(), "location": "Onder-kamp"})
+
+    by_location = {row["location"]: [a["tag"] for a in row["animals"]]
+                   for row in client.get("/api/locations").json()}
+    assert by_location == {"Bo-kamp": ["A1"], "Onder-kamp": ["A2", "B1"]}
+
+
+def test_locations_leave_out_animals_that_have_left_the_herd(client):
+    _camp(client, ["A1", "A2"], "Bo-kamp")
+    client.post("/api/events", json={"tag": "A2", "kind": "sale",
+                                     "event_date": RECENTLY.isoformat()})
+    assert client.get("/api/locations").json() == [
+        {"location": "Bo-kamp", "animals": [{"tag": "A1", "name": ""}]}]
