@@ -81,13 +81,20 @@ class Event(SQLModel, table=True):
     note: str = ""
     location: str = ""  # camp/paddock name - mainly for "movement" events
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    # Filled in automatically from Open-Meteo for the farm's position on
+    # event_date (see weather.py) - null if the farm has no position set or
+    # the lookup failed, never blocking the event itself from being recorded.
+    weather_temp_max: Optional[float] = None  # deg C
+    weather_temp_min: Optional[float] = None  # deg C
+    weather_precipitation: Optional[float] = None  # mm
 
 
 class Farm(SQLModel, table=True):
     """One row per install - there's only one farm per Kudde server, so this
     is a singleton always addressed by id=1 rather than a lookup. gps_lat/
-    gps_lng are what a future weather integration would key off: the farm's
-    single location, not a per-animal or per-camp one."""
+    gps_lng are the farm's single location - not a per-animal or per-camp
+    one - and are what every event's weather is looked up against.
+    """
     id: Optional[int] = Field(default=None, primary_key=True)
     farm_name: str = ""
     farmer_name: str = ""

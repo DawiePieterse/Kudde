@@ -10,8 +10,10 @@ from models import Farm
 router = APIRouter(prefix="/api/farm", tags=["farm"])
 
 # There's only one farm per Kudde server, so the row is always this id
-# rather than something callers look up.
-_SINGLETON_ID = 1
+# rather than something callers look up. Public because events.py reads the
+# same row to stamp each event's weather - two modules agreeing on "1" by
+# coincidence is exactly how they would later stop agreeing.
+SINGLETON_ID = 1
 
 
 class FarmUpdate(SQLModel):
@@ -23,9 +25,9 @@ class FarmUpdate(SQLModel):
 
 
 def _get_or_create(session: Session) -> Farm:
-    farm = session.get(Farm, _SINGLETON_ID)
+    farm = session.get(Farm, SINGLETON_ID)
     if farm is None:
-        farm = Farm(id=_SINGLETON_ID)
+        farm = Farm(id=SINGLETON_ID)
         session.add(farm)
         session.commit()
         session.refresh(farm)
