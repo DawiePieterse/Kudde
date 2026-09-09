@@ -52,10 +52,202 @@ signed release, where it stays from then on.
 The clone itself is the one moment you are trusting the network rather than
 a signature - do it over a connection you control.
 
-Whatever credentials that clone used (an SSH deploy key in
-`%USERPROFILE%\.ssh`, or a stored HTTPS credential) have to belong to the
-Windows account that will run the daily check - see
-[Being told when a release is out](#being-told-when-a-release-is-out).
+If the repository is private, that clone needs a credential of its own, and it
+has to belong to the Windows account that will run the daily check - see
+[A deploy key, if the repository is private](#a-deploy-key-if-the-repository-is-private)
+immediately below.
+
+### A deploy key, if the repository is private
+
+Skip this if the repository is public - an unauthenticated fetch works and
+there is nothing to set up.
+
+A private repository makes the farm PC prove who it is on every fetch. The
+right credential for that is a **deploy key**: an SSH key GitHub accepts for
+*this one repository*, which you can mark read-only. A personal access token
+would also work, but it carries your whole account's reach, expires on a date
+nobody wrote down, and lives in Credential Manager where it is invisible until
+the morning it stops working. A read-only deploy key is scoped to one
+repository, cannot push, and does not expire.
+
+Everything below happens **on the farm PC**, in an ordinary (non-elevated)
+Command Prompt, logged on as the account that will run the daily check. Which
+account that is matters more than anything else here - see [The account the key
+has to live in](#the-account-the-key-has-to-live-in).
+
+**1. Make the key, on the farm PC.**
+
+```bat
+ssh-keygen -t ed25519 -C "kudde-<farm-name>" -f "%USERPROFILE%\.ssh\kudde_deploy" -N ""
+```
+
+`-N ""` gives it no passphrase, deliberately: the daily check runs unattended
+from a Scheduled Task, and a passphrase-protected key would sit waiting for a
+prompt on a desktop nobody is looking at. What protects this key is that it is
+read-only and good for one repository, not that it is encrypted.
+
+Generate it here rather than making it on your Mac and copying it across. A
+private key that has never been on a second machine, in a Downloads folder or
+in a WhatsApp message is one you never have to wonder about later.
+
+**2. Show the public half.**
+
+```bat
+type "%USERPROFILE%\.ssh\kudde_deploy.pub"
+```
+
+One line, starting `ssh-ed25519`. That half is safe to paste anywhere. The
+file *without* the `.pub` never leaves this PC.
+
+**3. Give it to GitHub.**
+
+On github.com: **the repository - Settings - Deploy keys - Add deploy key**.
+Title it after the farm, so a second server is tellable from the first. Paste
+the line from step 2.
+
+**Leave "Allow write access" unchecked.** A farm server only ever reads. A
+deploy key with write access, on a machine that runs `update_server.bat`
+elevated, hands anyone who reaches that PC the ability to push code back - and
+push access is precisely what the signed-tag design is built to not need.
+
+**4. Tell ssh to use that key for github.com.**
+
+Create `%USERPROFILE%\.ssh\config` - no extension, `config` exactly - holding:
+
+```
+Host github.com
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/kudde_deploy
+  IdentitiesOnly yes
+```
+
+`IdentitiesOnly yes` is not padding. Without it ssh offers every key in the
+folder in turn and GitHub answers with the permissions of whichever one it
+recognised first, so on a PC that also carries your personal key the deploy key
+may never be tried at all. That works today and fails bewilderingly on the day
+the personal key is removed.
+
+Notepad saves it as `config.txt` unless you pick "All Files" in the save
+dialog. Check with `dir "%USERPROFILE%\.ssh"`.
+
+**5. Accept GitHub's host key once, deliberately.**
+
+```bat
+ssh -T git@github.com
+```
+
+It prints a fingerprint and asks whether to continue. Check it against the list
+GitHub publishes (docs.github.com, "GitHub's SSH key fingerprints") before
+typing `yes` - for the same reason `data\release_key.fpr` is checked against
+something other than this repository. The ed25519 one is currently
+`SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU`, but confirm that from
+GitHub rather than from here.
+
+Answering this as a person, once, is the entire point of the step: a Scheduled
+Task that meets this prompt for the first time cannot answer it, so it hangs or
+fails every morning with an error that mentions nothing about host keys.
+
+Success looks like a refusal:
+
+```
+Hi DawiePieterse/Kudde! You've successfully authenticated, but GitHub does not provide shell access.
+```
+
+It names the repository, which is also how you confirm the key landed on the
+right one.
+
+**6. Point the clone at SSH.**
+
+A clone made over HTTPS keeps trying HTTPS whatever keys exist. In the project
+folder:
+
+```bat
+git remote set-url origin git@github.com:DawiePieterse/Kudde.git
+git remote -v
+```
+
+For a fresh install, clone that URL in the first place, in place of the HTTPS
+one above:
+
+```bat
+git clone git@github.com:DawiePieterse/Kudde.git C:\Kudde
+```
+
+**7. Test it the way the scripts do.**
+
+```bat
+git ls-remote --tags origin
+```
+
+That is the same command `setup_update_check.bat` runs before it registers
+anything, so if this prints tags the daily check will work. If it prints
+`Permission denied (publickey)`, stop here and fix it - every other step of the
+update path is built on this working.
+
+#### The account the key has to live in
+
+An SSH key lives in one Windows profile. Kudde reads the repository from two
+places, and they are not always the same account:
+
+- **The daily check** (`update_server.bat --check`, run by the "Kudde Update
+  Check" task) deliberately does not elevate, so it runs as the logged-on user.
+- **The update itself** (`update_server.bat`) self-elevates through UAC,
+  because it restarts the server.
+
+If the farm account is a **local administrator**, UAC elevates that same
+account, `%USERPROFILE%` does not change, and the single key you just made
+covers both. This is the ordinary case.
+
+If the farm account is a **standard user**, UAC asks for an administrator's
+credentials and the elevated half then runs as *that* account - a different
+profile, with no deploy key in it. The failure is worth recognising because it
+reads backwards: the Admin app cheerfully announces that a release is out,
+because the check ran fine as you, and then double-clicking
+`update_server.bat` dies on `Permission denied (publickey)` at the fetch.
+Either make the farm account a local administrator, or repeat steps 1-6 in the
+administrator's profile as well.
+
+SYSTEM is a third profile again, which is why the daily check is not allowed to
+run as SYSTEM however tempting "runs even when logged off" looks.
+
+#### If this PC also runs Boord
+
+A deploy key is good for exactly one repository, so Boord needs its own - and
+two keys cannot both be `Host github.com`. Give each an alias instead:
+
+```
+Host github.com-kudde
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/kudde_deploy
+  IdentitiesOnly yes
+
+Host github.com-boord
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/boord_deploy
+  IdentitiesOnly yes
+```
+
+Each checkout then uses its own alias where the hostname would go:
+
+```bat
+git remote set-url origin git@github.com-kudde:DawiePieterse/Kudde.git
+```
+
+The alias is only a label for the config block; `HostName` is what it actually
+connects to. Cross them and git authenticates perfectly well with the wrong
+repository's key, which GitHub reports as a repository that does not exist -
+never as anything to do with keys.
+
+#### Rotating or revoking it
+
+Delete the key on GitHub (Settings - Deploy keys - the bin icon) and the farm
+PC stops being able to fetch, immediately. Nothing else is affected: the
+release key that signs tags is a separate thing entirely, so revoking a deploy
+key invalidates no release and changes nothing in `data\release_key.fpr`. Make
+a replacement with steps 1-6.
 
 ### Git and GnuPG
 
