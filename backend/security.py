@@ -60,7 +60,8 @@ DEV_LOOPBACK_ENV = "KUDDE_ALLOW_LOOPBACK"
 # answer is always the same address.
 TAILSCALE_ONLY_MESSAGE = (
     "Kudde is only reachable over Tailscale - open the secure "
-    "https://...ts.net/ address, not the farm wifi one and not localhost"
+    "https://...ts.net:8030/ address (the port matters on a PC that also "
+    "runs Boord), not the farm wifi one and not localhost"
 )
 
 

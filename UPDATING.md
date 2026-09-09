@@ -306,12 +306,20 @@ the key it trusts - which is the mechanism working, not a fault.
 ## Checking what a server is running
 
 ```
-https://<farm-pc>.<tailnet>.ts.net/api/version
+https://<farm-pc>.<tailnet>.ts.net:8030/api/version
 ```
 
 Over Tailscale, from any connected device. The farm-wifi address and this
 PC's own `localhost` are both refused now - `/healthz` is the only thing
 that answers off the tailnet, and it deliberately says nothing but `ok`.
+
+The `:8030` matters on a PC that also runs Boord: Kudde's `tailscale serve`
+mapping lives on its own port (see install.ps1's setup message) precisely so
+it can't silently steal Boord's bare `https://...ts.net/` slot, or vice
+versa. Leaving the port off this URL on a shared box reaches whichever app
+currently owns that slot, not necessarily Kudde - see "If another app is on
+this machine too" in Boord's MANUAL.md chapter 2 for the failure mode
+(`{"detail":"Not Found"}` from a perfectly healthy wrong app).
 
 ```json
 {
