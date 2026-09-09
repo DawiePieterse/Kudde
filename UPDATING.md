@@ -142,7 +142,11 @@ Double-click **`update_server.bat`**. In order, it:
    the database open. `stop_server.ps1` checks port 8030 is genuinely free
    and refuses rather than guessing;
 9. **copies the database**, into `data\backups\pre_migration_*.db`, and
-   refuses to migrate if that copy could not be written;
+   refuses to migrate if that copy could not be written. The animals' photos
+   are taken alongside it, into a matching `pre_migration_*_photos\` folder -
+   as hard links, so they take names rather than disk space. Photos are the
+   one thing a failure here does *not* stop the migration for: a migration
+   rewrites the database, never a photo file;
 10. migrates the database in the foreground, so a schema change happens in
     front of the person who chose to update;
 11. restarts the server.
@@ -229,6 +233,19 @@ If the migration had already run, the database is a version ahead of that
 code. The copy taken before it ran is the newest `pre_migration_*.db` in
 `data\backups\` - stop the server, move the current `data\kudde.db` aside
 (don't delete it), and copy that file into its place.
+
+Then put back the photos that go with it, from the `pre_migration_*_photos\`
+folder of the same name:
+
+```
+robocopy data\backups\pre_migration_<the same one>_photos data\photos /E /XC /XN /XO
+```
+
+Copy rather than move, and let it add to `data\photos\` rather than replace
+it: anything already there is either the same photo or one taken after the
+snapshot, and neither is worth losing. Photos taken after the snapshot are
+not in the restored database, so they simply sit unreferenced on disk until
+you roll forward again.
 
 ---
 

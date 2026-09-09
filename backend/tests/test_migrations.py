@@ -233,3 +233,147 @@ def test_snapshots_are_pruned_but_never_before_the_new_one_lands(tmp_path, monke
     kept = backup._pre_migration_filenames()
     assert len(kept) == backup.PRE_MIGRATION_KEEP
     assert kept == sorted(kept)[-backup.PRE_MIGRATION_KEEP:], "the oldest copies should go first"
+
+
+# --- the photos beside the database -----------------------------------------
+
+def _a_farms_photos(tmp_path, count=3):
+    """A photo directory shaped the way routers/photos.py writes one."""
+    photos = tmp_path / "photos"
+    (photos / "1").mkdir(parents=True)
+    (photos / "2").mkdir(parents=True)
+    for i in range(count):
+        target = photos / ("1" if i else "2") / f"{i:032x}.jpg"
+        target.write_bytes(b"jpeg-bytes-%d" % i)
+    return photos
+
+
+@pytest.fixture()
+def snapshot_dir(tmp_path, monkeypatch):
+    """A backups directory of this test's own.
+
+    A snapshot's name carries a timestamp to the second, so two tests taking
+    one in the same second land on the same name - the second one linking
+    into the first one's photo directory, where a link over an existing name
+    quietly falls back to a copy. A farm never sees this (one migration per
+    start); the suite sees it constantly.
+    """
+    backups = tmp_path / "backups"
+    monkeypatch.setattr(backup, "BACKUPS_DIR", str(backups))
+    return backups
+
+
+def _can_hard_link(tmp_path) -> bool:
+    a, b = tmp_path / "link-probe", tmp_path / "link-probe-2"
+    a.write_bytes(b"x")
+    try:
+        os.link(a, b)
+        return True
+    except OSError:
+        return False
+    finally:
+        for f in (a, b):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+
+
+def test_the_snapshot_takes_the_photos_too(tmp_path, snapshot_dir):
+    """A farm's data is the database AND the photos beside it. Restoring only
+    the database leaves every photo deleted since the snapshot as a row
+    pointing at a file that is no longer there."""
+    source = tmp_path / "live.db"
+    sqlite3.connect(source).close()
+    photos = _a_farms_photos(tmp_path)
+
+    path = backup.snapshot_before_migration("test", str(source), str(photos))
+
+    taken = backup._photos_dir_for(path)
+    assert os.path.isdir(taken)
+    assert sorted(os.listdir(taken)) == ["1", "2"]
+    for animal in ("1", "2"):
+        for name in os.listdir(os.path.join(photos, animal)):
+            assert (open(os.path.join(taken, animal, name), "rb").read()
+                    == open(os.path.join(photos, animal, name), "rb").read())
+
+
+def test_a_snapshotted_photo_survives_being_deleted_from_the_herd(tmp_path, snapshot_dir):
+    """The point of taking them: the photo the farmer deleted after the
+    snapshot is exactly the one a restored database still expects."""
+    source = tmp_path / "live.db"
+    sqlite3.connect(source).close()
+    photos = _a_farms_photos(tmp_path)
+    live = next((photos / "1").iterdir())
+    kept_bytes = live.read_bytes()
+
+    path = backup.snapshot_before_migration("test", str(source), str(photos))
+    os.remove(live)  # deleted from the herd after the snapshot was taken
+
+    in_backup = os.path.join(backup._photos_dir_for(path), "1", live.name)
+    assert open(in_backup, "rb").read() == kept_bytes
+
+
+def test_the_photos_take_names_rather_than_disk_space(tmp_path, snapshot_dir):
+    """Hard links, not copies. Photos are the bulk of a farm's data, and
+    copying them PRE_MIGRATION_KEEP times over is how a farm server's disk
+    fills - at which point a snapshot fails, and a failed snapshot refuses
+    the migration and the server does not start."""
+    if not _can_hard_link(tmp_path):
+        pytest.skip("this filesystem has no hard links; the copy fallback applies")
+    source = tmp_path / "live.db"
+    sqlite3.connect(source).close()
+    photos = _a_farms_photos(tmp_path)
+    live = next((photos / "1").iterdir())
+
+    path = backup.snapshot_before_migration("test", str(source), str(photos))
+
+    in_backup = os.path.join(backup._photos_dir_for(path), "1", live.name)
+    assert os.stat(in_backup).st_ino == os.stat(live).st_ino, "the photo was copied, not linked"
+
+
+def test_photos_that_cannot_be_taken_do_not_stop_the_migration(tmp_path, snapshot_dir, monkeypatch):
+    """Deliberately not the database's rule. A migration rewrites the
+    database in place; it does not touch a single photo file, so photos are
+    not what it puts at risk - and refusing to start a farm's server over
+    them would trade a real outage for a marginally better rollback point."""
+    source = tmp_path / "live.db"
+    sqlite3.connect(source).close()
+    photos = _a_farms_photos(tmp_path)
+
+    def refuse(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(backup.os, "link", refuse)
+    monkeypatch.setattr(backup.shutil, "copy2", refuse)
+
+    path = backup.snapshot_before_migration("test", str(source), str(photos))
+    assert os.path.exists(path), "the database copy is what the migration depends on"
+
+
+def test_a_farm_with_no_photos_yet_is_snapshotted_normally(tmp_path, snapshot_dir):
+    source = tmp_path / "live.db"
+    sqlite3.connect(source).close()
+    path = backup.snapshot_before_migration("test", str(source), str(tmp_path / "nothing-here"))
+    assert os.path.exists(path)
+    assert not os.path.exists(backup._photos_dir_for(path))
+
+
+def test_pruning_takes_a_snapshots_photos_with_it(tmp_path, snapshot_dir, monkeypatch):
+    """Otherwise the photo directories outlive the databases they belong to
+    and accumulate without bound."""
+    backups = snapshot_dir
+    source = tmp_path / "live.db"
+    sqlite3.connect(source).close()
+    photos = _a_farms_photos(tmp_path)
+
+    stamps = iter(f"2026090{i}_120000" for i in range(1, 9))
+    monkeypatch.setattr(backup, "datetime", type("D", (), {
+        "now": staticmethod(lambda: type("T", (), {"strftime": staticmethod(lambda _: next(stamps))})())
+    }))
+    for _ in range(backup.PRE_MIGRATION_KEEP + 2):
+        backup.snapshot_before_migration("upgrade", str(source), str(photos))
+
+    kept = backup._pre_migration_filenames()
+    photo_dirs = sorted(d for d in os.listdir(backups) if d.endswith(backup.PRE_MIGRATION_PHOTOS_SUFFIX))
+    assert photo_dirs == [backup._photos_dir_for(name) for name in kept]
