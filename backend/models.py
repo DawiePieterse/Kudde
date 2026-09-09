@@ -106,6 +106,16 @@ class Farm(SQLModel, table=True):
 
 class AnimalPhoto(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    # The id the capturing device gave this photo, before it had ever reached
+    # a server - the same contract as Event.client_uuid, and for the same
+    # reason. A phone camera photo is several MB over farm wifi, so an upload
+    # that timed out but actually landed is the common case here rather than
+    # the rare one, and nothing else about a photo tells that replay apart
+    # from a second photo of the same animal.
+    #
+    # Nullable, because a photo picked in the admin app never passes through
+    # an outbox and has no such id.
+    client_uuid: Optional[str] = Field(default=None, index=True, unique=True)
     animal_id: int = Field(foreign_key="animal.id", index=True)
     # Name of the file on disk under PHOTOS_DIR/<animal_id>/ - a fresh uuid,
     # not the phone's original filename, so two photos can never collide.

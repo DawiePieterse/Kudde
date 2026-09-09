@@ -10,6 +10,7 @@ create_all - the same path a new farm takes on first boot, so a broken
 migration fails here instead of on the first install.
 """
 import os
+import shutil
 import tempfile
 
 import pytest
@@ -78,6 +79,13 @@ def client():
             os.remove(db.DB_PATH + suffix)
         except OSError:
             pass
+
+    # And a fresh photo directory, because photos are the half of a farm's
+    # data that is NOT in the database. Animal ids restart at 1 with the new
+    # database, so without this the first animal of one test inherits the
+    # photo files of the first animal of the last one.
+    shutil.rmtree(db.PHOTOS_DIR, ignore_errors=True)
+    os.makedirs(db.PHOTOS_DIR, exist_ok=True)
     with TestClient(FromPeer(main.app)) as c:  # startup: run_migrations
         yield c
 
