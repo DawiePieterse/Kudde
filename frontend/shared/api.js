@@ -64,6 +64,19 @@ const Kudde = {
     return contentType.includes("application/json") ? res.json() : res.text();
   },
 
+  // Like api(), but for multipart uploads (photos): the body is a FormData,
+  // so the browser must set its own Content-Type (with the boundary) -
+  // setting one manually here would break the upload.
+  async apiUpload(path, formData, { timeoutMs } = {}) {
+    const res = await Kudde._fetchWithTimeout(
+      `${API_BASE}${path}`, { method: "POST", body: formData }, timeoutMs);
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`${res.status} ${text}`);
+    }
+    return res.json();
+  },
+
   fmtDate(value, fallback = "") {
     if (!value) return fallback;
     const d = new Date(value.length <= 10 ? `${value}T00:00:00` : value);

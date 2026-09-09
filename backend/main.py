@@ -6,7 +6,7 @@ from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from migrate import run_migrations
-from routers import animals, dashboard, events, settings, version
+from routers import animals, dashboard, events, photos, settings, version
 from security import TAILSCALE_ONLY_MESSAGE, is_tailscale_client
 from version import prime as prime_version
 
@@ -22,6 +22,7 @@ app.add_middleware(
 app.include_router(animals.router)
 app.include_router(events.router)
 app.include_router(dashboard.router)
+app.include_router(photos.router)
 app.include_router(settings.router)
 app.include_router(version.router)
 

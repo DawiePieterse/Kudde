@@ -3,3 +3,5 @@ uvicorn[standard]==0.32.1
 sqlmodel==0.0.22
 alembic==1.14.1
 httpx==0.28.1
+python-multipart==0.0.9
+Pillow==11.1.0

@@ -13,6 +13,9 @@ os.makedirs(DATA_DIR, exist_ok=True)
 DB_PATH = os.path.join(DATA_DIR, "kudde.db")
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 
+PHOTOS_DIR = os.path.join(DATA_DIR, "photos")
+os.makedirs(PHOTOS_DIR, exist_ok=True)
+
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 
 

@@ -221,6 +221,18 @@
       <button id="saveAnimalBtn" class="flex-1 kudde-btn-primary rounded-lg py-2 font-semibold">Save</button>
     </div>
 
+    <!-- Photos, only shown when editing an existing animal -->
+    <div id="animalPhotosSection" class="hidden border-t pt-3 mb-3">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-sm font-semibold text-slate-500">Photos</div>
+        <button id="addPhotoBtn" class="text-xs kudde-btn-primary rounded-full px-3 py-1.5 font-semibold">
+          <i class="fa-solid fa-camera"></i> Add photo
+        </button>
+      </div>
+      <div id="animalPhotosList" class="flex gap-2 overflow-x-auto pb-1"></div>
+      <input id="photoInput" type="file" accept="image/*" class="hidden">
+    </div>
+
     <!-- Event history + add-event form, only shown when editing an existing animal -->
     <div id="animalEventsSection" class="hidden border-t pt-3">
       <div class="text-sm font-semibold text-slate-500 mb-2">History</div>
