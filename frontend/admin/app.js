@@ -25,6 +25,17 @@ function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// e.g. "18-27°C, 4mm" - blank when the farm has no position set or the
+// lookup failed for that day, rather than showing a row of dashes.
+function weatherSummary(e) {
+  if (e.weather_temp_min == null && e.weather_temp_max == null) return "";
+  const temp = e.weather_temp_min != null && e.weather_temp_max != null
+    ? `${Math.round(e.weather_temp_min)}-${Math.round(e.weather_temp_max)}°C`
+    : `${Math.round(e.weather_temp_min ?? e.weather_temp_max)}°C`;
+  const rain = e.weather_precipitation ? `, ${e.weather_precipitation}mm` : "";
+  return `${temp}${rain}`;
+}
+
 // ---------------------------------------------------------------------
 // Tabs
 // ---------------------------------------------------------------------
@@ -86,7 +97,10 @@ function renderDashboard() {
             <span class="font-semibold">${escapeHtml(e.tag)}</span>${e.name ? ` ${escapeHtml(e.name)}` : ""}
             <span class="text-slate-500">- ${e.kind}${e.value != null ? ` ${e.value}kg` : ""}${e.location ? `${e.kind === "movement" ? " to " : " in "}${escapeHtml(e.location)}` : ""}</span>
           </div>
-          <div class="text-xs text-slate-400">${Kudde.fmtDate(e.event_date)}</div>
+          <div class="text-xs text-slate-400 text-right">
+            <div>${Kudde.fmtDate(e.event_date)}</div>
+            ${weatherSummary(e) ? `<div>${weatherSummary(e)}</div>` : ""}
+          </div>
         </div>`).join("")
     : `<div class="text-slate-400">No activity yet</div>`;
 
@@ -206,7 +220,10 @@ async function refreshEventsList() {
               ${e.value != null ? ` - ${e.value}kg` : ""}${e.location ? ` - ${escapeHtml(e.location)}` : ""}
               ${e.note ? `<div class="text-xs text-slate-500">${escapeHtml(e.note)}</div>` : ""}
             </div>
-            <div class="text-xs text-slate-400">${Kudde.fmtDate(e.event_date)}</div>
+            <div class="text-xs text-slate-400 text-right">
+              <div>${Kudde.fmtDate(e.event_date)}</div>
+              ${weatherSummary(e) ? `<div>${weatherSummary(e)}</div>` : ""}
+            </div>
           </div>`).join("")
       : `<div class="text-slate-400">No events recorded yet</div>`;
   } catch (e) {

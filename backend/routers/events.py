@@ -6,8 +6,10 @@ from pydantic import model_validator
 from sqlmodel import Session, SQLModel, select
 
 from db import get_session
-from models import Animal, AnimalStatus, Event, EventKind
+from models import Animal, AnimalStatus, Event, EventKind, Farm
 from routers.animals import normalise_tag
+from routers.settings import SINGLETON_ID as FARM_ID
+from weather import fetch_daily_weather
 
 router = APIRouter(prefix="/api", tags=["events"])
 
@@ -91,6 +93,18 @@ def create_event(payload: EventCreate, session: Session = Depends(get_session)):
     event = Event(animal_id=animal.id, kind=payload.kind, event_date=payload.event_date,
                    value=payload.value, note=payload.note, location=payload.location,
                    client_uuid=payload.client_uuid)
+
+    # After the client_uuid check above, never before it: a replay of an
+    # event that already landed returns the stored one without going near
+    # the network, so a slow Open-Meteo cannot be walked into once per retry.
+    farm = session.get(Farm, FARM_ID)
+    if farm is not None and farm.gps_lat is not None and farm.gps_lng is not None:
+        weather = fetch_daily_weather(farm.gps_lat, farm.gps_lng, payload.event_date)
+        if weather is not None:
+            event.weather_temp_max = weather.temp_max
+            event.weather_temp_min = weather.temp_min
+            event.weather_precipitation = weather.precipitation
+
     session.add(event)
 
     new_status = _STATUS_ON_EVENT.get(payload.kind)
