@@ -13,6 +13,7 @@ file picker, so shrinking has to happen here to actually bound storage.
 import io
 import os
 import uuid
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
@@ -71,8 +72,32 @@ def _shrink_to_jpeg(data: bytes) -> bytes:
 
 @router.post("/animals/{tag}/photos")
 async def add_animal_photo(tag: str, file: UploadFile = File(...), caption: str = Form(""),
+                            client_uuid: Optional[str] = Form(None),
                             session: Session = Depends(get_session)):
+    """Store a photo against an animal, once, however many times this is asked.
+
+    Idempotent on client_uuid for the same reason create_event() is: the field
+    app cannot tell a request that failed from one that succeeded slowly. It
+    gives up after 8 seconds (Kudde.NETWORK_TIMEOUT_MS) and puts the upload
+    back in its outbox, so a request that was slow but actually landed is
+    replayed - and a several-MB photo over farm wifi crosses 8 seconds often,
+    which makes this the ordinary case here rather than the rare one. Nothing
+    else about a photo distinguishes that replay from a real second one: a
+    farmer genuinely can take two pictures of the same animal a minute apart.
+
+    The check sits before the re-encode and the disk write, so a replay costs
+    a lookup rather than another pass through Pillow and another file.
+    """
     animal = _animal_by_tag(session, tag)
+
+    if client_uuid:
+        already = session.exec(
+            select(AnimalPhoto).where(AnimalPhoto.client_uuid == client_uuid)).first()
+        if already is not None:
+            # Answered with the photo that is already on file, so the device
+            # takes it off its outbox rather than retrying forever.
+            return _photo_out(already)
+
     if not (file.content_type or "").startswith("image/"):
         raise HTTPException(400, "Only image uploads are accepted")
 
@@ -91,7 +116,8 @@ async def add_animal_photo(tag: str, file: UploadFile = File(...), caption: str 
         f.write(data)
 
     photo = AnimalPhoto(animal_id=animal.id, filename=filename,
-                         content_type="image/jpeg", caption=caption.strip())
+                         content_type="image/jpeg", caption=caption.strip(),
+                         client_uuid=client_uuid or None)
     session.add(photo)
     session.commit()
     session.refresh(photo)

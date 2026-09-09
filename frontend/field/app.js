@@ -242,19 +242,35 @@ async function deleteAnimalPhoto(id) {
 }
 
 async function uploadAnimalPhoto(tag, file) {
-  const formData = new FormData();
-  formData.append("file", file);
+  // Stamped at capture, not at send, and kept for the replay: the server
+  // stores a photo once per client_uuid. A several-MB photo over farm wifi
+  // routinely outlasts the 8s deadline, and the upload may well have landed
+  // anyway - this is the only thing that tells that retry apart from a
+  // genuine second picture of the same animal.
+  const clientUuid = uuid();
   try {
-    await Kudde.apiUpload(`/api/animals/${encodeURIComponent(tag)}/photos`, formData);
+    await Kudde.apiUpload(`/api/animals/${encodeURIComponent(tag)}/photos`,
+                          photoFormData(file, clientUuid));
     Kudde.setOffline(false);
     Kudde.toast("Photo saved");
   } catch (e) {
     if (!Kudde.isNetworkError(e)) { Kudde.toast(Kudde.errorDetail(e)); return; }
     Kudde.setOffline(true);
-    await IDB.enqueue({ uuid: uuid(), kind: "photo", payload: { tag, blob: file, type: file.type } });
+    await IDB.enqueue({ uuid: clientUuid, kind: "photo",
+                        payload: { tag, blob: file, type: file.type, client_uuid: clientUuid } });
     Kudde.toast("Saved on this device - will sync when online");
   }
   if (activeTag === tag) await renderAnimalPhotos();
+}
+
+// The upload body, built the same way whether it is being sent now or
+// replayed out of the outbox - the client_uuid has to survive that round
+// trip, which is the whole point of it.
+function photoFormData(blob, clientUuid, type) {
+  const formData = new FormData();
+  formData.append("file", blob, `photo.${(type || blob.type || "image/jpeg").split("/")[1] || "jpg"}`);
+  formData.append("client_uuid", clientUuid);
+  return formData;
 }
 
 function closeAnimalDetail() {
@@ -500,9 +516,9 @@ async function trySync() {
         } else if (entry.kind === "bulk_movement") {
           await Kudde.api("/api/events/movement/bulk", { method: "POST", body: entry.payload });
         } else if (entry.kind === "photo") {
-          const formData = new FormData();
-          formData.append("file", entry.payload.blob, `photo.${(entry.payload.type || "image/jpeg").split("/")[1] || "jpg"}`);
-          await Kudde.apiUpload(`/api/animals/${encodeURIComponent(entry.payload.tag)}/photos`, formData);
+          await Kudde.apiUpload(
+            `/api/animals/${encodeURIComponent(entry.payload.tag)}/photos`,
+            photoFormData(entry.payload.blob, entry.payload.client_uuid || entry.uuid, entry.payload.type));
         }
         await IDB.markSynced(entry.uuid);
       } catch (e) {
