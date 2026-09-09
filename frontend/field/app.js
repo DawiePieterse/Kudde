@@ -370,7 +370,14 @@ async function confirmMove() {
   const location = document.getElementById("moveToLocation").value.trim();
   if (!location) { Kudde.toast("New location is required"); return; }
 
-  const payload = { tags, event_date: eventDate, location, note: document.getElementById("moveNote").value.trim() };
+  const payload = {
+    tags, event_date: eventDate, location,
+    note: document.getElementById("moveNote").value.trim(),
+    // Same contract as a single event: stamped at capture, kept for the
+    // replay, and what stops a timed-out-but-landed camp move from moving
+    // the whole camp a second time when the outbox retries it.
+    client_uuid: uuid(),
+  };
 
   let pending = false;
   try {
@@ -380,7 +387,7 @@ async function confirmMove() {
     if (!Kudde.isNetworkError(e)) { Kudde.toast(Kudde.errorDetail(e)); return; }
     Kudde.setOffline(true);
     pending = true;
-    await IDB.enqueue({ uuid: uuid(), kind: "bulk_movement", payload });
+    await IDB.enqueue({ uuid: payload.client_uuid, kind: "bulk_movement", payload });
   }
 
   closeMoveModal();

@@ -90,6 +90,10 @@ class BulkMovementCreate(SQLModel):
     event_date: date
     location: str
     note: str = ""
+    # The id the capturing device gave this batch. Optional for the same
+    # reason it is on EventCreate: the admin app has no outbox and sends
+    # none. See create_bulk_movement() for what it is derived into.
+    client_uuid: Optional[str] = None
 
 
 def _animal_by_tag(session: Session, tag: str) -> Animal:
@@ -154,20 +158,54 @@ def create_event(payload: EventCreate, session: Session = Depends(get_session)):
     return event
 
 
+def _batch_member_uuid(client_uuid: str, animal_id: int) -> str:
+    """The client_uuid stored on one animal's event within a batch.
+
+    Event.client_uuid is unique per row, so a batch cannot store the same id
+    on all of its events. Deriving one per animal keeps the column doing its
+    job for every row a bulk move writes, and makes a batch that half landed
+    - some rows committed, then the connection dropped - resolve on replay
+    rather than duplicating what did land.
+    """
+    return f"{client_uuid}:{animal_id}"
+
+
 @router.post("/events/movement/bulk")
 def create_bulk_movement(payload: BulkMovementCreate, session: Session = Depends(get_session)):
     """Record the same movement for every listed animal in one call, so a
     camp move lands as one save instead of one request per tag. Tags are
     resolved up front - if any one of them doesn't exist, nothing is
-    written, rather than moving half a camp and failing partway through."""
+    written, rather than moving half a camp and failing partway through.
+
+    Idempotent on client_uuid, exactly as create_event() is and for the same
+    reason: the field app queues a whole camp move in its outbox and replays
+    it after an 8-second timeout, so a slow-but-landed request would
+    otherwise move the camp twice - a duplicate movement per animal, which
+    is what _current_locations() reads to decide where the herd is.
+    """
     if not payload.tags:
         raise HTTPException(400, "At least one tag is required")
     animals = [_animal_by_tag(session, tag) for tag in payload.tags]
-    events = [
-        Event(animal_id=a.id, kind=EventKind.movement, event_date=payload.event_date,
-              location=payload.location, note=payload.note)
-        for a in animals
-    ]
+
+    already = {}
+    if payload.client_uuid:
+        keys = [_batch_member_uuid(payload.client_uuid, a.id) for a in animals]
+        already = {
+            event.client_uuid: event
+            for event in session.exec(select(Event).where(Event.client_uuid.in_(keys))).all()
+        }
+
+    events = []
+    for animal in animals:
+        key = _batch_member_uuid(payload.client_uuid, animal.id) if payload.client_uuid else None
+        if key is not None and key in already:
+            # Already on file from an earlier attempt at this same batch.
+            events.append(already[key])
+            continue
+        events.append(Event(animal_id=animal.id, kind=EventKind.movement,
+                            event_date=payload.event_date, location=payload.location,
+                            note=payload.note, client_uuid=key))
+
     session.add_all(events)
     session.commit()
     for event in events:
