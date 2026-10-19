@@ -289,6 +289,50 @@ git push origin v0.2
 Never re-point a tag that has already been pushed. Servers compare the tag
 they are on against the newest tag, so a moved tag silently fails to
 re-deploy on any server already sitting on it. Cut a new version instead.
+(The one exception is the unsigned-tag case below, where no server has been
+able to install the tag yet.)
+
+### Check the signature before and after pushing
+
+Always make the tag with `scripts/release.sh`, never with `git tag -a`, `git
+tag` or GitHub's "Draft a new release" page. Those make a perfectly normal
+looking tag with **no signature**, and `update_server.bat` refuses it with
+"SIGNATURE CHECK FAILED" - which reads like tampering but is just a missing
+signature. `release.sh` verifies the tag it creates; if you made one by hand,
+check it yourself before pushing:
+
+```
+git verify-tag --raw v0.2
+```
+
+It must print a `VALIDSIG` line ending in the fingerprint farms trust
+(`67C64CFDD584DD140E58AF6E329C9B9DD0562A9D`). `error: no signature found`
+means the tag is unsigned.
+
+After pushing, confirm what GitHub actually has, from a fresh clone or any
+machine that fetches tags:
+
+```
+git fetch --tags --force origin
+git verify-tag --raw v0.2
+```
+
+#### An unsigned tag is already pushed
+
+Servers that tried it changed nothing and are still on the previous release,
+so re-signing in place is safe. Re-sign the *same* commit so the release
+contents do not change, then force-push the tag:
+
+```
+git tag -s -f v0.2 -m "Kudde v0.2" $(git rev-list -n 1 v0.2)
+git verify-tag --raw v0.2
+git push --force origin v0.2
+```
+
+Run `update_server.bat` again on each server; it fetches with `--force` and
+picks up the signed tag. If you did not create the unsigned tag yourself,
+find out who did (`git cat-file -p v0.2` shows the tagger) before re-signing
+it.
 
 ### Setting up signing, once
 
