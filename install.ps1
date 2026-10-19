@@ -340,13 +340,20 @@ cd /d "$BackendDir"
     # kills it. The server is meant to run for months and the task only fires at
     # boot, so nothing would start it again - it would just go quiet after three
     # days. PT0S means no limit.
+    #
+    # The same task defaults also stop the server when a laptop switches to
+    # battery and refuse to start it at boot on battery - which is exactly what
+    # a power cut looks like on a farm PC that is a laptop. A server has to run
+    # on whatever power it has, so both are switched off.
     try {
         $task = Get-ScheduledTask -TaskName $TaskName
         $task.Settings.ExecutionTimeLimit = "PT0S"
+        $task.Settings.StopIfGoingOnBatteries = $false
+        $task.Settings.DisallowStartIfOnBatteries = $false
         Set-ScheduledTask -InputObject $task | Out-Null
     } catch {
-        Write-Warn "Could not remove the 72 hour run limit on the task: $($_.Exception.Message)"
-        Write-Warn "Windows will stop the server after 3 days - see UPDATING.md for the one-line fix."
+        Write-Warn "Could not relax the task defaults (72 hour limit, stop on battery): $($_.Exception.Message)"
+        Write-Warn "Windows will stop the server after 3 days, or on battery - see UPDATING.md for the one-line fix."
     }
     Write-Ok "Scheduled task '$TaskName' registered (runs at every startup, no one needs to log in)"
 

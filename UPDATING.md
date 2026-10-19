@@ -364,7 +364,7 @@ the key it trusts - which is the mechanism working, not a fault.
 
 ---
 
-## The server stops by itself after 3 days
+## The server stops by itself (after 3 days, or on battery)
 
 A "Kudde Server" task made before v0.6 has Windows' default 72 hour run limit,
 so Windows kills the server after three days and, since the task only fires
@@ -379,6 +379,15 @@ Command Prompt (re-running `install.bat` does the same):
 
 ```
 powershell -NoProfile -Command "$t = Get-ScheduledTask -TaskName 'Kudde Server'; $t.Settings.ExecutionTimeLimit = 'PT0S'; Set-ScheduledTask -InputObject $t"
+```
+
+On a laptop, the same task also stops the server when the PC goes on battery
+and will not start it at boot on battery - which is what a power cut looks
+like. `schtasks /query /tn "Kudde Server" /v /fo list | findstr /i "Power"`
+showing `Stop On Battery Mode, No Start On Batteries` is the problem. Fix:
+
+```
+powershell -NoProfile -Command "$t = Get-ScheduledTask -TaskName 'Kudde Server'; $t.Settings.StopIfGoingOnBatteries = $false; $t.Settings.DisallowStartIfOnBatteries = $false; Set-ScheduledTask -InputObject $t"
 ```
 
 ---
