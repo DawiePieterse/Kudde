@@ -279,8 +279,11 @@ if %errorLevel% neq 0 (
 :: that adds a migration cannot run at all without it: a half-finished pip
 :: install would take the farm from "an update didn't apply" to "the server
 :: no longer starts", discovered by whoever opens the Field app next
-:: morning. Ask the venv directly.
-"%~dp0backend\.venv\Scripts\python.exe" -c "import fastapi, sqlmodel, alembic" >nul 2>&1
+:: morning. Ask the venv directly. Every third-party package the app imports
+:: is listed (requirements.txt names multipart as python-multipart and PIL as
+:: Pillow): v0.5 shipped needing httpx, pip was blocked, and a shorter list let
+:: this check pass while the server could not start. Add new packages here.
+"%~dp0backend\.venv\Scripts\python.exe" -c "import fastapi, uvicorn, sqlmodel, alembic, httpx, multipart, PIL" >nul 2>&1
 if errorlevel 1 (
     echo.
     echo The server's dependencies are not fully installed, so this update

@@ -336,6 +336,18 @@ cd /d "$BackendDir"
         schtasks /delete /tn "$TaskName" /f | Out-Null
     }
     schtasks /create /tn "$TaskName" /tr "`"$launcherPath`"" /sc onstart /ru SYSTEM /rl highest /f | Out-Null
+    # schtasks /create gives every task a 72 hour run limit, after which Windows
+    # kills it. The server is meant to run for months and the task only fires at
+    # boot, so nothing would start it again - it would just go quiet after three
+    # days. PT0S means no limit.
+    try {
+        $task = Get-ScheduledTask -TaskName $TaskName
+        $task.Settings.ExecutionTimeLimit = "PT0S"
+        Set-ScheduledTask -InputObject $task | Out-Null
+    } catch {
+        Write-Warn "Could not remove the 72 hour run limit on the task: $($_.Exception.Message)"
+        Write-Warn "Windows will stop the server after 3 days - see UPDATING.md for the one-line fix."
+    }
     Write-Ok "Scheduled task '$TaskName' registered (runs at every startup, no one needs to log in)"
 
     # --- Step 9: Start it now ---

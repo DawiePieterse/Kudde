@@ -364,6 +364,25 @@ the key it trusts - which is the mechanism working, not a fault.
 
 ---
 
+## The server stops by itself after 3 days
+
+A "Kudde Server" task made before v0.6 has Windows' default 72 hour run limit,
+so Windows kills the server after three days and, since the task only fires
+at boot, nothing starts it again. Check:
+
+```
+schtasks /query /tn "Kudde Server" /v /fo list | findstr /i "Stop Task"
+```
+
+`72:00:00` is the problem; `Disabled` is right. Fix it in an administrator
+Command Prompt (re-running `install.bat` does the same):
+
+```
+powershell -NoProfile -Command "$t = Get-ScheduledTask -TaskName 'Kudde Server'; $t.Settings.ExecutionTimeLimit = 'PT0S'; Set-ScheduledTask -InputObject $t"
+```
+
+---
+
 ## Checking what a server is running
 
 ```
