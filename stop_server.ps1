@@ -35,7 +35,12 @@ function Get-PortListeners($port) {
     try {
         $conns = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
         if ($null -eq $conns) { return @() }
-        return @($conns)
+        # `tailscale serve --https=8030` makes tailscaled listen on this port
+        # too, bound to the PC's Tailscale address. That is Kudde's front door,
+        # not a competing server, and it stays up while Kudde restarts. uvicorn
+        # binds all interfaces or loopback, so only those can be Kudde's own.
+        $own = @('0.0.0.0', '::', '127.0.0.1', '::1')
+        return @($conns | Where-Object { $own -contains $_.LocalAddress })
     } catch {
         return @()
     }
