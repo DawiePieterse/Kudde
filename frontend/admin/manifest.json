@@ -1,13 +1,13 @@
 {
   "name": "Kudde Admin",
-  "short_name": "Kudde",
+  "short_name": "Kudde Admin",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "background_color": "#0A2F6B",
   "theme_color": "#0A2F6B",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+    { "src": "icons/icon-192-ring.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512-ring.png", "sizes": "512x512", "type": "image/png" }
   ]
 }

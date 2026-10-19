@@ -3,7 +3,7 @@
 // when available via api.js/idb.js - this only guarantees the UI itself is
 // installable/offline.
 const CACHE_PREFIX = "kudde-field-";
-const CACHE = "kudde-field-v2";
+const CACHE = "kudde-field-v3";
 const REVALIDATE_TIMEOUT_MS = 10000;
 const SHELL = [
   "./",

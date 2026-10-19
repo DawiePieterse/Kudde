@@ -1,14 +1,28 @@
+/* Named --boord-* (not --kudde-*) to match Boord's frontend/shared/
+   styles.css exactly, same names and same hex values, so a rule copied
+   between the sibling apps keeps its colour instead of silently falling
+   back to nothing on an undefined variable. */
 :root {
-  --kudde-blue: #0A2F6B;
-  --kudde-red: #C8102E;
-  --kudde-green: #16a34a;
-  --kudde-amber: #eab308;
+  --boord-blue: #0A2F6B;
+  --boord-red: #C8102E;
+  --boord-green: #16a34a;
+  --boord-yellow: #eab308;
 }
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   /* Keep the browser's native pull-to-refresh out of the way of KWPTR's. */
   overscroll-behavior-y: contain;
+  /* Stops iOS's double-tap-to-zoom (which also costs every tap a ~300ms
+     wait while Safari decides whether a second tap is coming) but keeps
+     pinch zoom. The viewport used to forbid zoom outright with
+     user-scalable=no, which also took pinch away from anyone squinting at
+     a tag number in bright sun. */
+  touch-action: manipulation;
+  /* Clear of the home indicator on a notchless-bottom iPhone once the
+     viewport is viewport-fit=cover. The page's own bottom gap (was pb-6)
+     lives here so the two add up instead of one replacing the other. */
+  padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
 }
 
 /* Offline banner injected by Kudde.offlineBanner() (shared/api.js). */
@@ -34,33 +48,41 @@ body {
   background: white;
   box-shadow: 0 2px 8px rgba(0,0,0,0.25);
   display: flex; align-items: center; justify-content: center;
-  color: var(--kudde-blue);
+  color: var(--boord-blue);
   font-size: 1.1rem;
   z-index: 60;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s;
 }
-.ptr-indicator.ready { color: var(--kudde-green); }
+.ptr-indicator.ready { color: var(--boord-green); }
 .ptr-indicator.spinning i { animation: ptr-spin 0.8s linear infinite; }
 @keyframes ptr-spin { to { transform: rotate(360deg); } }
 
-.kudde-header { background: var(--kudde-blue); color: white; }
-.kudde-btn-primary { background: var(--kudde-blue); color: white; }
+/* The header's top padding is set here rather than with a Tailwind p-*
+   class, because it has to grow by the status-bar inset on an installed
+   iPhone (viewport-fit=cover lets the page run under the notch) and a
+   Tailwind class would win over this rule. Each page sets --header-pad to
+   the padding it would otherwise have had. */
+.kudde-header {
+  background: var(--boord-blue); color: white;
+  padding-top: calc(var(--header-pad, 0.75rem) + env(safe-area-inset-top, 0px));
+}
+.kudde-btn-primary { background: var(--boord-blue); color: white; }
 .kudde-btn-primary:active { opacity: 0.85; }
-.kudde-btn-danger { background: var(--kudde-red); color: white; }
+.kudde-btn-danger { background: var(--boord-red); color: white; }
 .kudde-btn-primary:disabled, .kudde-btn-danger:disabled { opacity: 0.5; }
 
 .status-pill-alive { background-color: #dcfce7; color: #166534; }
 .status-pill-dead { background-color: #fee2e2; color: #991b1b; }
 .status-pill-sold { background-color: #fef9c3; color: #854d0e; }
 
-.event-icon-birth { color: var(--kudde-green); }
-.event-icon-weight { color: var(--kudde-blue); }
-.event-icon-treatment { color: var(--kudde-red); }
-.event-icon-movement { color: var(--kudde-amber); }
+.event-icon-birth { color: var(--boord-green); }
+.event-icon-weight { color: var(--boord-blue); }
+.event-icon-treatment { color: var(--boord-red); }
+.event-icon-movement { color: var(--boord-yellow); }
 .event-icon-death { color: #64748b; }
-.event-icon-sale { color: var(--kudde-amber); }
+.event-icon-sale { color: var(--boord-yellow); }
 
 .action-btn {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -77,7 +99,7 @@ body {
 .action-btn i { font-size: 1.4rem; }
 
 .tab-btn { flex: 1; text-align: center; padding: 0.6rem 0; font-size: 0.8rem; white-space: nowrap; padding-left: 1rem; padding-right: 1rem; }
-.tab-btn.active { color: var(--kudde-blue); font-weight: 600; border-bottom: 3px solid var(--kudde-blue); }
+.tab-btn.active { color: var(--boord-blue); font-weight: 600; border-bottom: 3px solid var(--boord-blue); }
 
 /* pointer-events: none is load-bearing, not decoration. The toast is
    always in the DOM - it only fades to opacity 0 - so without this it
@@ -87,7 +109,7 @@ body {
    nothing on screen to explain why. The ptr-indicator above already
    does this for the same reason. */
 .toast {
-  position: fixed; bottom: 5rem; left: 50%; transform: translateX(-50%);
+  position: fixed; bottom: calc(5rem + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%);
   background: #111827; color: white; padding: 0.6rem 1.2rem; border-radius: 999px;
   font-size: 0.9rem; z-index: 50; opacity: 0; transition: opacity 0.2s;
   pointer-events: none;

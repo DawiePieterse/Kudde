@@ -3,7 +3,15 @@
 // One object store ("outbox") holding every create-animal / record-event
 // request made while this device couldn't reach the server, each an
 // {uuid, kind: "animal"|"event"|"bulk_movement"|"photo", payload, synced,
-// timestamp}.
+// timestamp}, plus {status: "failed", error, failedAt} once the server has
+// refused it (see trySync in app.js).
+//
+// "failed" lives INSIDE the record rather than in a new store or index on
+// purpose: adding either means bumping the database version, and a version
+// bump is exactly the moment a phone holding unsynced records is most at
+// risk. The upgrade handler below only creates missing stores today, but a
+// record field needs no upgrade at all, and old records simply lack it -
+// which reads as "not failed", which is right.
 // The animal list itself is cached separately (see "animal_cache" below) so
 // the herd is still browsable offline, not just capturable.
 //
@@ -67,10 +75,43 @@ const IDB = (() => {
       store.put({ synced: false, timestamp: new Date().toISOString(), ...entry });
       await done(store);
     },
+    // Waiting to be sent: not yet landed and not refused. Failed entries
+    // are left out so the sync loop doesn't post the same rejected request
+    // every 20 seconds forever.
     async getPending() {
       const store = await tx(OUTBOX, "readonly");
       const all = await request(store.getAll());
-      return all.filter((e) => !e.synced);
+      return all.filter((e) => !e.synced && e.status !== "failed");
+    },
+    // Refused by the server. Kept on the device - not deleted - because
+    // each one is a record somebody captured in the field (a weighing, a
+    // death) and silently throwing it away is how a herd book goes wrong
+    // without anyone noticing. Only the user discards one (discard below).
+    async getFailed() {
+      const store = await tx(OUTBOX, "readonly");
+      const all = await request(store.getAll());
+      return all.filter((e) => !e.synced && e.status === "failed");
+    },
+    async markFailed(uuid, error) {
+      const store = await tx(OUTBOX, "readwrite");
+      const finished = done(store);
+      // The put is issued from inside the get's own callback rather than
+      // after an `await`: older iOS Safari commits a transaction as soon as
+      // control returns to the event loop, so a put after an awaited get
+      // lands on a closed transaction and throws.
+      const req = store.get(uuid);
+      req.onsuccess = () => {
+        const entry = req.result;
+        if (entry) {
+          store.put({ ...entry, status: "failed", error: String(error || ""), failedAt: new Date().toISOString() });
+        }
+      };
+      await finished;
+    },
+    async discard(uuid) {
+      const store = await tx(OUTBOX, "readwrite");
+      store.delete(uuid);
+      await done(store);
     },
     async markSynced(uuid) {
       const store = await tx(OUTBOX, "readwrite");

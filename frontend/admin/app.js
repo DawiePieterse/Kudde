@@ -95,7 +95,7 @@ function renderDashboard() {
           <i class="fa-solid ${EVENT_ICON[e.kind] || "fa-circle"} event-icon-${e.kind} w-4"></i>
           <div class="flex-1">
             <span class="font-semibold">${escapeHtml(e.tag)}</span>${e.name ? ` ${escapeHtml(e.name)}` : ""}
-            <span class="text-slate-500">- ${e.kind}${e.value != null ? ` ${e.value}kg` : ""}${e.location ? `${e.kind === "movement" ? " to " : " in "}${escapeHtml(e.location)}` : ""}</span>
+            <span class="text-slate-500">- ${escapeHtml(Kudde.eventLabel(e.kind))}${e.value != null ? ` ${Kudde.fmtKg(e.value)}` : ""}${e.location ? `${e.kind === "movement" ? " to " : " in "}${escapeHtml(e.location)}` : ""}</span>
           </div>
           <div class="text-xs text-slate-400 text-right">
             <div>${Kudde.fmtDate(e.event_date)}</div>
@@ -213,6 +213,9 @@ async function refreshPhotosList() {
         </button>`;
       thumb.querySelector("img").addEventListener("click", () => window.open(p.url, "_blank"));
       thumb.querySelector(".delete-photo-btn").addEventListener("click", async () => {
+        // A deleted photo has no undo, and the x is small enough to hit
+        // while aiming for the photo itself.
+        if (!confirm(`Delete this photo of ${editingTag}? This can't be undone.`)) return;
         try {
           await Kudde.api(`/api/photos/${p.id}`, { method: "DELETE" });
         } catch (e) {
@@ -263,8 +266,8 @@ async function refreshEventsList() {
           <div class="flex items-center gap-2 py-1 border-b border-slate-100 last:border-0">
             <i class="fa-solid ${EVENT_ICON[e.kind] || "fa-circle"} event-icon-${e.kind} w-4"></i>
             <div class="flex-1">
-              <span class="font-medium">${e.kind}</span>
-              ${e.value != null ? ` - ${e.value}kg` : ""}${e.location ? ` - ${escapeHtml(e.location)}` : ""}
+              <span class="font-medium">${escapeHtml(Kudde.eventLabel(e.kind))}</span>
+              ${e.value != null ? ` - ${Kudde.fmtKg(e.value)}` : ""}${e.location ? ` - ${escapeHtml(e.location)}` : ""}
               ${e.note ? `<div class="text-xs text-slate-500">${escapeHtml(e.note)}</div>` : ""}
             </div>
             <div class="text-xs text-slate-400 text-right">
@@ -322,6 +325,14 @@ async function addEvent() {
   // See the field app: a blank weight event hides the animal from the one
   // screen meant to catch it. The server refuses it too.
   if (kind === "weight" && !(value > 0)) { Kudde.toast("Enter the weight in kg"); return; }
+
+  // Death and Sale flip the animal's status on the server and take it out
+  // of the live herd - asked first, naming the animal, because the kind is
+  // picked from a dropdown that is easy to leave on the wrong entry.
+  if (kind === "death" || kind === "sale") {
+    const label = kind === "death" ? "dead" : "sold";
+    if (!confirm(`Record ${editingTag} as ${label}? It will be marked ${STATUS_LABEL[label]} and leave the live herd.`)) return;
+  }
 
   const payload = {
     tag: editingTag,
@@ -675,8 +686,16 @@ async function init() {
 
 init().catch((e) => {
   console.error("[kudde] failed to start", e);
-  document.body.innerHTML = `<div class="p-6 text-center text-red-600">Failed to start: ${escapeHtml(e.message || e)}</div>`;
+  document.body.innerHTML = `<div class="p-6 text-center text-red-600">${escapeHtml(startupFailureMessage(e))}</div>`;
 });
+
+// See the field app: the Tailscale-only 403 already says how to fix it, so
+// it is shown on its own instead of behind "Failed to start: 403".
+function startupFailureMessage(e) {
+  const raw = String((e && e.message) || e || "");
+  if (/^403\b/.test(raw)) return Kudde.errorDetail(e);
+  return `Failed to start: ${raw}`;
+}
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("service-worker.js").catch(() => {});

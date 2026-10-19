@@ -188,8 +188,8 @@ async function openAnimalDetail(tag) {
           <div class="flex items-center gap-2 py-1 border-b border-slate-100 last:border-0">
             <i class="fa-solid ${eventIcon(e.kind)} event-icon-${e.kind} w-4"></i>
             <div class="flex-1">
-              <span class="font-medium">${e.kind}</span>
-              ${e.value != null ? ` - ${e.value}kg` : ""}${e.location ? ` - ${escapeHtml(e.location)}` : ""}
+              <span class="font-medium">${escapeHtml(Kudde.eventLabel(e.kind))}</span>
+              ${e.value != null ? ` - ${Kudde.fmtKg(e.value)}` : ""}${e.location ? ` - ${escapeHtml(e.location)}` : ""}
               ${e.note ? `<div class="text-xs text-slate-500">${escapeHtml(e.note)}</div>` : ""}
             </div>
             <div class="text-xs text-slate-400">${Kudde.fmtDate(e.event_date)}</div>
@@ -229,6 +229,10 @@ async function renderAnimalPhotos() {
 }
 
 async function deleteAnimalPhoto(id) {
+  // A native confirm, not a custom sheet: the x on a thumbnail is small and
+  // sits right where a thumb lands when scrolling the photo strip, and a
+  // deleted photo has no undo.
+  if (!confirm(`Delete this photo of ${activeTag}? This can't be undone.`)) return;
   try {
     await Kudde.api(`/api/photos/${id}`, { method: "DELETE" });
     Kudde.setOffline(false);
@@ -305,6 +309,17 @@ const STATUS_ON_EVENT = { death: "dead", sale: "sold" };
 async function confirmEvent() {
   const eventDate = document.getElementById("eventDate").value;
   if (!eventDate) { Kudde.toast("Date is required"); return; }
+
+  // Death and Sale take the animal out of the live herd (the server flips
+  // its status), and the two buttons sit beside Birth and Move in the same
+  // grid - easy to hit with a gloved thumb. Asked here, at Save, rather than
+  // on opening the modal, so it names exactly what is about to be recorded.
+  if (STATUS_ON_EVENT[activeEventKind]) {
+    const what = activeEventKind === "death"
+      ? `Record ${activeTag} as dead`
+      : `Record ${activeTag} as sold`;
+    if (!confirm(`${what}? It will be marked ${STATUS_LABEL[STATUS_ON_EVENT[activeEventKind]]} and leave the live herd.`)) return;
+  }
 
   const value = EVENT_FIELD_CONFIG[activeEventKind].showValue
     ? parseFloat(document.getElementById("eventValue").value) || null : null;
@@ -475,13 +490,66 @@ async function confirmMove() {
 // Sync
 // ---------------------------------------------------------------------
 
+let failedCount = 0;   // last known number of outbox entries the server refused
+
 function updateSyncStatusPill(pendingCount) {
   const el = document.getElementById("syncStatus");
+  let text;
   if (Kudde.isOffline()) {
-    el.textContent = pendingCount ? `Offline - ${pendingCount} pending` : "Offline";
+    text = pendingCount ? `Offline - ${pendingCount} pending` : "Offline";
   } else {
-    el.textContent = pendingCount ? `Syncing ${pendingCount}...` : "Online";
+    text = pendingCount ? `Syncing ${pendingCount}...` : "Online";
   }
+  if (failedCount) text += ` - ${failedCount} failed`;
+  el.textContent = text;
+  // Red while anything is stuck, so it is noticed at a glance from the
+  // home screen rather than only by someone who thinks to tap the pill.
+  el.classList.toggle("bg-red-600", failedCount > 0);
+  el.classList.toggle("bg-white/20", failedCount === 0);
+}
+
+// Re-reads both counts from IndexedDB and redraws the pill. The failed
+// count is kept in a module variable so updateSyncStatusPill can still be
+// called synchronously with only the pending count.
+async function refreshSyncStatusPill() {
+  const [pending, failed] = await Promise.all([IDB.getPending(), IDB.getFailed()]);
+  failedCount = failed.length;
+  updateSyncStatusPill(pending.length);
+}
+
+// One line naming what a stuck outbox entry was, in the user's terms - the
+// tag and the kind of record, not a uuid.
+function describeOutboxEntry(entry) {
+  const p = entry.payload || {};
+  if (entry.kind === "animal") return `New animal ${p.tag}`;
+  if (entry.kind === "event") return `${Kudde.eventLabel(p.kind)} for ${p.tag} on ${Kudde.fmtDate(p.event_date)}`;
+  if (entry.kind === "bulk_movement") {
+    const n = (p.tags || []).length;
+    return `Move of ${n} animal${n === 1 ? "" : "s"} to ${p.location}`;
+  }
+  if (entry.kind === "photo") return `Photo of ${p.tag}`;
+  return "A saved change";
+}
+
+// Tapping the pill walks through each refused entry with the server's own
+// reason and asks, one by one, whether to throw it away. Native confirm()
+// rather than a custom list: it needs no new markup, can't be dismissed by
+// a stray tap outside it, and reads the same on every phone. Cancel keeps
+// the entry - so a user who just wants to read the reasons loses nothing.
+async function reviewFailedEntries() {
+  const failed = await IDB.getFailed();
+  if (!failed.length) {
+    Kudde.toast(Kudde.isOffline() ? "Offline - changes will sync later" : "Everything on this device has synced");
+    return;
+  }
+  for (const entry of failed) {
+    const keep = !confirm(
+      `${describeOutboxEntry(entry)} was not saved.\n\n` +
+      `The server said: ${entry.error || "no reason given"}\n\n` +
+      "OK discards it from this device. Cancel keeps it here.");
+    if (!keep) await IDB.discard(entry.uuid);
+  }
+  await refreshSyncStatusPill();
 }
 
 // trySync is called from four places - startup, the 20s interval, the
@@ -504,6 +572,7 @@ async function trySync() {
   syncBusy = true;
   try {
     const pending = await IDB.getPending();
+    failedCount = (await IDB.getFailed()).length;
     updateSyncStatusPill(pending.length);
     if (!pending.length || Kudde.isOffline()) return;
 
@@ -523,11 +592,27 @@ async function trySync() {
         await IDB.markSynced(entry.uuid);
       } catch (e) {
         if (!Kudde.isNetworkError(e)) {
-          // The server rejected it outright (e.g. tag already exists because
-          // it synced from another device first) - nothing will change on a
-          // retry, so drop it rather than block every entry behind it forever.
-          console.warn("[kudde] dropping unsyncable outbox entry", entry, e);
-          await IDB.markSynced(entry.uuid);
+          const status = parseInt(String(e && e.message || "").slice(0, 3), 10);
+          // 403 is about this DEVICE, not this entry: the request came in
+          // over the farm wifi rather than Tailscale (security.py), and every
+          // entry would get the same answer. Marking them failed would bury a
+          // whole day's records behind a routing problem, so stop and retry
+          // the batch later, exactly as if the server were out of reach.
+          if (status === 403) break;
+          // A 5xx is the server's own trouble and may well pass (a restart,
+          // a locked database). Leave it queued for the next pass, but move
+          // on so it doesn't hold up every entry behind it.
+          if (!(status >= 400 && status < 500)) continue;
+          // Any other 4xx is the server refusing this record outright (the
+          // tag was already added from another device, the animal it names
+          // was never created). A retry will get the same answer, so it
+          // stops being sent - but it is KEPT, marked failed with the
+          // server's reason, for the user to read and discard by tapping
+          // the sync pill. It used to be deleted here with only a
+          // console.warn, so a death or a weighing could vanish from the
+          // phone with nothing on screen to say so.
+          console.warn("[kudde] outbox entry refused by the server", entry, e);
+          await IDB.markFailed(entry.uuid, Kudde.errorDetail(e));
           continue;
         }
         Kudde.setOffline(true);
@@ -535,7 +620,7 @@ async function trySync() {
       }
     }
 
-    updateSyncStatusPill((await IDB.getPending()).length);
+    await refreshSyncStatusPill();
     await loadAnimals();
     await loadDashboard();
     if (activeTag && document.getElementById("animalDetailModal").classList.contains("flex")) {
@@ -553,9 +638,10 @@ async function trySync() {
 async function init() {
   document.getElementById("appVersion").textContent = `v${Kudde.VERSION}`;
   Kudde.offlineBanner("Offline - changes are saved on this device and will sync later");
-  Kudde.onOfflineChange = (offline) => { IDB.getPending().then((p) => updateSyncStatusPill(p.length)); };
+  Kudde.onOfflineChange = () => { refreshSyncStatusPill().catch(() => {}); };
 
   document.getElementById("searchInput").addEventListener("input", renderAnimalList);
+  document.getElementById("syncStatus").addEventListener("click", () => { reviewFailedEntries().catch(() => {}); });
   document.getElementById("addAnimalBtn").addEventListener("click", openAddAnimal);
   document.getElementById("cancelAddAnimalBtn").addEventListener("click", closeAddAnimal);
   document.getElementById("confirmAddAnimalBtn").addEventListener("click", confirmAddAnimal);
@@ -591,8 +677,19 @@ async function init() {
 
 init().catch((e) => {
   console.error("[kudde] failed to start", e);
-  document.body.innerHTML = `<div class="p-6 text-center text-red-600">Failed to start: ${escapeHtml(e.message || e)}</div>`;
+  document.body.innerHTML = `<div class="p-6 text-center text-red-600">${escapeHtml(startupFailureMessage(e))}</div>`;
 });
+
+// The Tailscale-only 403 (security.py) is the one startup failure a user
+// can fix themselves, and its message already says how - so it is shown on
+// its own. "Failed to start: 403 Kudde is only reachable..." buried the
+// instruction behind a status code and made a wrong address read as a
+// crash. Anything else keeps the prefix, because then something IS broken.
+function startupFailureMessage(e) {
+  const raw = String((e && e.message) || e || "");
+  if (/^403\b/.test(raw)) return Kudde.errorDetail(e);
+  return `Failed to start: ${raw}`;
+}
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("service-worker.js").catch(() => {});

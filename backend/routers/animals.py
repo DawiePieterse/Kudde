@@ -96,14 +96,14 @@ def list_animals(q: Optional[str] = None, status: Optional[AnimalStatus] = None,
 def get_animal(tag: str, session: Session = Depends(get_session)):
     animal = session.exec(select(Animal).where(Animal.tag == tag)).first()
     if animal is None:
-        raise HTTPException(404, f"No animal with tag {tag!r}")
+        raise HTTPException(404, f"No animal with tag {tag}")
     return animal
 
 
 @router.post("")
 def create_animal(payload: AnimalCreate, session: Session = Depends(get_session)):
     if session.exec(select(Animal).where(Animal.tag == payload.tag)).first() is not None:
-        raise HTTPException(409, f"Tag {payload.tag!r} is already in use")
+        raise HTTPException(409, f"Tag {payload.tag} is already in use")
     animal = Animal(**payload.model_dump())
     session.add(animal)
     session.commit()
@@ -118,7 +118,7 @@ def update_animal(tag: str, payload: AnimalUpdate, session: Session = Depends(ge
     around the same time."""
     animal = session.exec(select(Animal).where(Animal.tag == tag)).first()
     if animal is None:
-        raise HTTPException(404, f"No animal with tag {tag!r}")
+        raise HTTPException(404, f"No animal with tag {tag}")
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(animal, key, value)
     animal.updated_at = datetime.utcnow()

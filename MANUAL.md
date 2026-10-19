@@ -256,10 +256,22 @@ something needs redoing.
    - Create a virtual environment in `backend\.venv` and install the
      app's dependencies into it.
    - Write a `start_server.bat` launcher.
-   - Open port **8030** through Windows Firewall. Boord runs as 8000 and
-     8020 on a real farm server; Kudde nearly collided with Boord Owner
-     over 8010 on exactly that kind of shared PC, so 8030 continues the
-     sequence rather than reusing a number already spoken for.
+   - Open port **8030** through Windows Firewall. On a farm PC shared
+     with the other Boord apps, each one has its own port, and its own
+     `tailscale serve` port so the addresses don't collide:
+
+     | App           | Port | `tailscale serve` port |
+     |---------------|------|------------------------|
+     | Boord         | 8000 | 443                    |
+     | Boord Owner   | 8010 | 8443                   |
+     | Boord Notes   | 8020 | 9443                   |
+     | **Kudde**     | 8030 | 8030                   |
+     | Boord Labour  | 8040 | 8040                   |
+     | Boord Monitor | 8050 | 8050                   |
+
+     Kudde nearly collided with Boord Owner over 8010 on exactly that kind
+     of shared PC, so 8030 continues the sequence rather than reusing a
+     number already spoken for.
    - Register a Scheduled Task named exactly **"Kudde Server"** that
      starts the server automatically at boot, running as SYSTEM - no one
      needs to be logged in for it to start.
@@ -517,7 +529,9 @@ right screen one tap away.
 
 Install from the address you actually intend to use (`.../field/` or
 `.../admin/`) so the shortcut opens the right screen with the right name
-and icon.
+and icon. The two are told apart on a home screen by name and by icon:
+Field is **"Kudde"** with the plain icon, Admin is **"Kudde Admin"** with
+a ringed one.
 
 ### Confirming a device picked up an update
 
@@ -549,6 +563,7 @@ sync pill reads:
 | **Syncing N...** | Connected, N queued items being sent now |
 | **Offline** | Can't reach the server right now |
 | **Offline - N pending** | Can't reach the server; N items are queued and will send once it's back |
+| **... - N failed** (red) | The server refused N saved items. They are kept on this device, not sent again. Tap the pill to read why, and discard each one |
 
 ### The offline banner
 
@@ -603,8 +618,9 @@ Saving:
 - Sends the event to the server immediately if reachable.
 - If not, saves it to this device's outbox and shows *"Saved on this
   device - will sync when online"* instead.
-- For a **Sale** or **Death** event, flips the animal's status right
-  away on this device (the same rule the server applies), so the list and
+- For a **Sale** or **Death** event, first asks you to confirm (naming
+  the tag, since either one takes the animal out of the live herd), then
+  flips the animal's status right away on this device (the same rule the server applies), so the list and
   the detail card are correct immediately, connected or not.
 
 A **Weight** event with the kg box empty is refused rather than saved
@@ -615,7 +631,8 @@ blank - see [The six event kinds](#the-six-event-kinds).
 The detail screen has a **Take photo** button. On a phone it opens the
 camera directly; on a PC it opens a file picker. Photos appear as a row
 of thumbnails - tap one to open it full size, or the small **×** on its
-corner to delete it.
+corner to delete it (it asks first - a deleted photo can't be brought
+back).
 
 Photos work offline the same way events do: taken with no signal, the
 photo is held on the device and uploaded when a connection comes back.
@@ -674,12 +691,16 @@ Behind the scenes:
   twice in one day.
 - If the server later rejects a queued item outright (most commonly, a
   tag that got created from another device first and synced sooner),
-  that one entry is dropped rather than blocking every entry queued
-  behind it. **Two devices creating the same new tag while both offline
-  is the one case Kudde can't reconcile for you** - whichever syncs first
-  wins, and the second is silently lost. If more than one device might be
-  adding new animals, agree tag ranges in advance, or check the Herd tab
-  in Admin before working somewhere with no signal.
+  that one entry stops being sent so it doesn't block every entry queued
+  behind it, but it is **kept on the device, marked failed**. The sync
+  pill turns red and adds *"N failed"*. Tap the pill: each failed item is
+  shown with the server's reason, and **OK** discards it, **Cancel**
+  keeps it. Nothing refused is thrown away until you say so. **Two
+  devices creating the same new tag while both offline is the one case
+  Kudde can't reconcile for you** - whichever syncs first wins, and the
+  second shows up as failed on its device. If more than one device might
+  be adding new animals, agree tag ranges in advance, or check the Herd
+  tab in Admin before working somewhere with no signal.
 
 ---
 
@@ -752,7 +773,7 @@ other animals) is recorded against.
 The same photo strip as the Field app, on the animal's edit screen:
 **Add photo** opens a file picker (there's no camera capture here, since
 Admin is an office screen), thumbnails open full size on click, and the
-**×** on a thumbnail deletes it. Deleting removes the file from the
+**×** on a thumbnail deletes it, after asking. Deleting removes the file from the
 server, not just the listing.
 
 ### History and recording an event
@@ -765,7 +786,8 @@ location (movement only), and a note. Each event in the history shows its
 weather alongside the date, where one was recorded. Saving refreshes the
 history list, the herd table, the dashboard, and - if the event was a sale
 or death - the status pill shown at the top of this same modal, without
-needing to reopen it.
+needing to reopen it. A **Sale** or **Death** asks you to confirm first,
+naming the tag.
 
 Admin has no outbox: it's meant to be run from a machine that can reach
 the server. A save that can't reach it says so rather than queueing.
@@ -842,7 +864,8 @@ find the existing record.
 **Two devices added the same new tag while both were offline.** See
 [Offline-first capture, in detail](#offline-first-capture-in-detail) -
 this is a known limitation, not a bug: whichever syncs first keeps the
-tag, and the other capture is dropped. Agree on tag ranges up front if
+tag, and the other capture shows as *"1 failed"* on its device's sync
+pill until you tap the pill and discard it. Agree on tag ranges up front if
 more than one device might be adding new animals away from a connection.
 
 **A device looks like it hasn't picked up a recent update.** Check the

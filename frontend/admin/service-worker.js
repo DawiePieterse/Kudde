@@ -2,16 +2,16 @@
 // network blip. Unlike the field app there's no offline data queue here -
 // see app.js for why - this only caches the UI shell itself.
 const CACHE_PREFIX = "kudde-admin-";
-const CACHE = "kudde-admin-v2";
+const CACHE = "kudde-admin-v3";
 const REVALIDATE_TIMEOUT_MS = 10000;
 const SHELL = [
   "./",
   "./index.html",
   "./app.js",
   "./manifest.json",
-  "./icons/icon-180.png",
-  "./icons/icon-192.png",
-  "./icons/icon-512.png",
+  "./icons/icon-180-ring.png",
+  "./icons/icon-192-ring.png",
+  "./icons/icon-512-ring.png",
   "../shared/styles.css",
   "../shared/api.js",
   "../shared/ptr.js",
@@ -20,6 +20,18 @@ const SHELL = [
   // See the field worker: the stylesheet without the font is a screenful of
   // empty boxes the first time this loads with no connection.
   "../shared/vendor/fontawesome/webfonts/fa-solid-900.woff2",
+  // Leaflet, for the Settings map. Without it a page loaded offline has no
+  // Leaflet global at all and throws the moment Settings is opened. The map
+  // TILES are still the internet's (they come from openstreetmap.org and are never
+  // cached), so offline the map is grey - but the coordinates boxes and the
+  // Save button keep working, which is the part that matters.
+  "../shared/vendor/leaflet/leaflet.css",
+  "../shared/vendor/leaflet/leaflet.js",
+  "../shared/vendor/leaflet/images/marker-icon.png",
+  "../shared/vendor/leaflet/images/marker-icon-2x.png",
+  "../shared/vendor/leaflet/images/marker-shadow.png",
+  "../shared/vendor/leaflet/images/layers.png",
+  "../shared/vendor/leaflet/images/layers-2x.png",
 ];
 
 self.addEventListener("install", (event) => {

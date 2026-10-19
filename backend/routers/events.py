@@ -121,7 +121,7 @@ def _stamp_weather(event: Event, weather: Optional[DailyWeather]) -> None:
 def _animal_by_tag(session: Session, tag: str) -> Animal:
     animal = session.exec(select(Animal).where(Animal.tag == normalise_tag(tag))).first()
     if animal is None:
-        raise HTTPException(404, f"No animal with tag {tag!r}")
+        raise HTTPException(404, f"No animal with tag {tag}")
     return animal
 
 

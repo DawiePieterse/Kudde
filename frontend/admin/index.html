@@ -2,13 +2,18 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Kudde Admin</title>
 <link rel="manifest" href="manifest.json">
-<link rel="icon" href="icons/icon-192.png">
-<link rel="apple-touch-icon" href="icons/icon-180.png">
+<!-- The ringed icon and "Kudde Admin" name, not Field's plain icon and
+     "Kudde": on a phone with both installed the two Home Screen icons were
+     identical twins, and the one that opens the herd editor got tapped by
+     mistake in the field. Kept in step with manifest.json. -->
+<link rel="icon" href="icons/icon-192-ring.png">
+<link rel="apple-touch-icon" href="icons/icon-180-ring.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Kudde">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Kudde Admin">
 <meta name="theme-color" content="#0A2F6B">
 <script src="../shared/tailwind.js"></script>
 <link rel="stylesheet" href="../shared/vendor/fontawesome/css/all.min.css">
@@ -18,9 +23,9 @@
 <script src="../shared/ptr.js"></script>
 <script src="../shared/vendor/leaflet/leaflet.js"></script>
 </head>
-<body class="bg-slate-100 min-h-screen pb-6">
+<body class="bg-slate-100 min-h-screen">
 
-<div class="kudde-header p-4">
+<div class="kudde-header px-4 pb-4" style="--header-pad: 1rem">
   <div class="flex items-start justify-between gap-3">
     <div>
       <div class="font-bold text-2xl md:text-3xl leading-tight">Kudde</div>
