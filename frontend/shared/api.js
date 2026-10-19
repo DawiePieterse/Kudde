@@ -7,7 +7,7 @@ const API_BASE = "";
 const Kudde = {
   // Bump on every deploy that touches frontend code, shown in each screen's
   // header - useful given the service workers cache the shell first.
-  VERSION: "0.5",
+  VERSION: "0.6",
 
   // A device whose WiFi is up but that cannot actually reach the farm server
   // gets no error from fetch() - the request just hangs until the OS gives
