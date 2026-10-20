@@ -192,6 +192,29 @@ cow's birth event carries the camp it happened in and, in the note, what
 matters afterwards: calving ease, whether it had to be pulled, whether
 cow and calf are up and sucking. A bull has no Calved button.
 
+### Cows, heifers, bulls, steers and calves
+
+A farmer counts the herd in those words, not in "female" and "male", so
+every screen shows each animal's **class** - and nothing has to be typed
+for it. It follows from what is recorded already:
+
+| Class | Rule |
+|---|---|
+| **Heifer calf / bull calf / steer calf** | Under a year old, by birth date |
+| **Heifer** | A female who has not calved - however old she is |
+| **Cow** | A female with a calving on record: a calf with her as dam, or a birth event on her dated well after her own birth |
+| **Bull** | A grown male |
+| **Steer** | A grown male marked **castrated** |
+
+An animal entered without a birth date counts as grown: it is nearly
+always a bought-in adult, not a calf nobody dated. **Castrated** is the
+one thing that can't be worked out, so it is a tick on the animal (on the
+Add animal form, and in Admin's edit form) - every male starts as a bull
+until it is ticked.
+
+The class is on each row in Field and in the Admin herd table, Admin can
+filter the table by it, and the dashboard counts the live herd by it.
+
 ### Camps, and moving a whole one
 
 The farm's camps are set up once, in [Admin - Settings](#camps), in the
@@ -627,7 +650,8 @@ anywhere) or name. **Add animal** opens a form for:
   `" A1 "` and `"A1"` are the same animal rather than two identical-looking
   ones nothing can tell apart.
 - **Name** (optional)
-- **Sex** (required) - Female or Male
+- **Sex** (required) - two buttons, **Female** or **Male**, neither
+  chosen until you tap one. Under Male, a **Castrated (steer)** tick.
 - **Breed** (optional, free text)
 - **Birth date** (optional)
 - **Camp** (optional) - where the animal is now, picked from the chips
@@ -652,8 +676,10 @@ weighing** and the list becomes that worklist - just the alive animals
 overdue a weighing; tap it again to go back.
 
 The list shows the cached animals, sorted by tag the way they are read
-(B2 before B10). Each row shows the tag and name, then **the camp the
-animal is in and its last weight** with how long ago that was - the two
+(B2 before B10). Each row shows the tag and name, then its **class**
+(cow, heifer, bull, steer or calf - see [chapter
+1](#cows-heifers-bulls-steers-and-calves)), **the camp the animal is in
+and its last weight** with how long ago that was - the two
 things you want while walking the herd - with a small warning triangle on
 an animal that needs weighing. Breed and sex are on the detail card. Tap
 any animal to open its detail.
@@ -858,6 +884,12 @@ See [Treatments and withdrawal](#treatments-and-withdrawal).
 Three tiles: **Alive**, **Dead**, **Sold** - a live count straight from
 the database.
 
+### Herd by class
+
+The live herd as it is counted: cows, heifers, bulls, steers, and the
+three kinds of calf. See [Cows, heifers, bulls, steers and
+calves](#cows-heifers-bulls-steers-and-calves) for how each is decided.
+
 ### The needs-weighing list
 
 Every alive animal with no weight event in the last 182 days (see
@@ -879,8 +911,9 @@ The full, editable herd list.
 
 ### Searching and filtering
 
-A search box (tag or name) and a status dropdown (All / Alive / Dead /
-Sold) filter the table live. **Add animal** opens the same fields as the
+A search box (tag or name), a status dropdown (All / Alive / Dead /
+Sold) and a class dropdown (All / Cows / Heifers / Bulls / Steers /
+Calves) filter the table live. **Add animal** opens the same fields as the
 Field app's Add animal form, and **Move camp** runs the same whole-camp
 move described in [chapter 4](#moving-a-camp) - the office version of the
 same action, for a move somebody phoned in rather than captured at the
@@ -888,12 +921,13 @@ gate.
 
 ### The herd table
 
-Columns: Tag, Name, Breed, Sex, Birth date, Camp, Last weight (with its
-date), Status. Click any row to open that animal.
+Columns: Tag, Name, Breed, Class, Birth date, Camp, Last weight (with
+its date), Status. Click any row to open that animal.
 
 ### Editing an animal
 
-Opens every field the Add form has, plus **Status** (Alive/Dead/Sold) -
+Opens every field the Add form has (including the **Castrated** tick
+under a male's sex), plus **Status** (Alive/Dead/Sold) -
 editable directly here, in addition to being set automatically by a sale
 or death event. The **tag number can't be changed** once an animal is
 created; it's the identity everything else (events, parentage links from
@@ -1092,6 +1126,7 @@ free some space in `data\backups\` and start the server again. See
 | `name` | text | Optional |
 | `breed` | text | Optional, free text - no breed-code lookup |
 | `sex` | `male` \| `female` | Required |
+| `castrated` | boolean | A castrated male is a steer. Ignored on a female |
 | `birth_date` | date | Optional |
 | `sire_tag` | text | Optional. The father's ear tag - not required to exist as an `Animal` in this database |
 | `dam_tag` | text | Optional. The mother's ear tag - same rule as `sire_tag` |

@@ -104,6 +104,7 @@ function renderAnimalList() {
 // weighed - what is wanted while walking the camp - rather than the breed
 // and sex, which never change and are on the detail card.
 function rowDetail(a) {
+  const cls = Kudde.classLabel(a.class || Kudde.localClass(a));
   const camp = a.camp ? escapeHtml(a.camp) : "No camp";
   let weighed;
   if (a.last_weight == null) {
@@ -115,7 +116,7 @@ function rowDetail(a) {
   const overdue = needsWeighing(a) ? ` <i class="fa-solid fa-triangle-exclamation text-amber-500"></i>` : "";
   const withdrawal = Kudde.inWithdrawal(a.withdrawal_until)
     ? `<div class="mt-0.5"><span class="withdrawal-pill text-xs font-semibold px-2 py-0.5 rounded-full">Withdrawal to ${Kudde.fmtDate(a.withdrawal_until)}</span></div>` : "";
-  return `${camp} &middot; ${weighed}${overdue}${withdrawal}`;
+  return `${cls} &middot; ${camp} &middot; ${weighed}${overdue}${withdrawal}`;
 }
 
 function renderSummary() {
@@ -191,7 +192,8 @@ function openAddAnimal() {
   for (const id of ["newTag", "newName", "newBreed", "newBirthDate", "newSireTag", "newDamTag", "newCamp"]) {
     document.getElementById(id).value = "";
   }
-  document.getElementById("newSex").value = "female";
+  setNewSex(null);
+  document.getElementById("newCastrated").checked = false;
   KuddeCamps.render(document.getElementById("newCampChips"), document.getElementById("newCamp"));
   document.getElementById("addAnimalModal").classList.remove("hidden");
   document.getElementById("addAnimalModal").classList.add("flex");
@@ -202,16 +204,29 @@ function closeAddAnimal() {
   document.getElementById("addAnimalModal").classList.remove("flex");
 }
 
+let newSex = null;
+
+// No default: a dropdown that opened on Female recorded a bull as a cow
+// whenever nobody looked. The steer tick only shows under Male.
+function setNewSex(sex) {
+  newSex = sex;
+  document.getElementById("newFemaleBtn").classList.toggle("active", sex === "female");
+  document.getElementById("newMaleBtn").classList.toggle("active", sex === "male");
+  document.getElementById("newCastratedRow").classList.toggle("hidden", sex !== "male");
+}
+
 async function confirmAddAnimal() {
   const tag = document.getElementById("newTag").value.trim();
   if (!tag) { Kudde.toast("Tag number is required"); return; }
+  if (!newSex) { Kudde.toast("Female or male?"); return; }
   if (animals.some((a) => a.tag === tag)) { Kudde.toast(`Tag ${tag} is already in use`); return; }
 
   const payload = {
     tag,
     name: document.getElementById("newName").value.trim(),
     breed: document.getElementById("newBreed").value.trim(),
-    sex: document.getElementById("newSex").value,
+    sex: newSex,
+    castrated: newSex === "male" && document.getElementById("newCastrated").checked,
     birth_date: document.getElementById("newBirthDate").value || null,
     sire_tag: document.getElementById("newSireTag").value.trim() || null,
     dam_tag: document.getElementById("newDamTag").value.trim() || null,
@@ -251,7 +266,7 @@ async function openAnimalDetail(tag) {
 
   document.getElementById("detailTag").textContent = animal.tag;
   document.getElementById("detailSub").textContent =
-    [animal.name, animal.breed, animal.sex === "male" ? "Male" : "Female",
+    [animal.name, animal.breed, Kudde.classLabel(animal.class || Kudde.localClass(animal)),
      Kudde.inWithdrawal(animal.withdrawal_until) ? `Withdrawal to ${Kudde.fmtDate(animal.withdrawal_until)}` : null]
       .filter(Boolean).join(" · ");
   document.getElementById("calvedBtn").classList.toggle("hidden", animal.sex !== "female");
@@ -1093,6 +1108,8 @@ async function init() {
   });
   document.getElementById("syncStatus").addEventListener("click", () => { reviewFailedEntries().catch(() => {}); });
   document.getElementById("addAnimalBtn").addEventListener("click", openAddAnimal);
+  document.getElementById("newFemaleBtn").addEventListener("click", () => setNewSex("female"));
+  document.getElementById("newMaleBtn").addEventListener("click", () => setNewSex("male"));
   document.getElementById("cancelAddAnimalBtn").addEventListener("click", closeAddAnimal);
   document.getElementById("confirmAddAnimalBtn").addEventListener("click", confirmAddAnimal);
   document.getElementById("closeDetailBtn").addEventListener("click", closeAnimalDetail);

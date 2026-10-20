@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends
 from sqlmodel import Session, func, select
 
+from classes import CLASSES, animal_class, calved_animal_ids
 from db import get_session
 from models import Animal, AnimalStatus, Event, EventKind
 from routers.events import withdrawal_until
@@ -62,8 +63,16 @@ def dashboard(session: Session = Depends(get_session)):
         key=lambda row: (row["until"], tag_sort_key(row["tag"])),
     )
 
+    # The live herd as a farmer counts it: so many cows, so many heifers.
+    # Every class is present, at zero if need be, so the card is stable.
+    calved = calved_animal_ids(session)
+    class_counts = {name: 0 for name in CLASSES}
+    for a in alive:
+        class_counts[animal_class(a, a.id in calved)] += 1
+
     return {
         "herd_counts": herd_counts,
+        "class_counts": class_counts,
         "in_withdrawal": in_withdrawal,
         "total_alive": herd_counts[AnimalStatus.alive.value],
         "recent_events": recent_events,

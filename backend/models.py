@@ -54,6 +54,11 @@ class Animal(SQLModel, table=True):
     # when it points at nothing in this database.
     sire_tag: Optional[str] = None
     dam_tag: Optional[str] = None
+    # A castrated male is a steer, not a bull, and a farmer counts them
+    # apart. The only thing about an animal's class that cannot be worked
+    # out from what is already recorded (see classes.py) - sex, age and
+    # whether she has calved are all there already.
+    castrated: bool = False
     status: AnimalStatus = AnimalStatus.alive
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

@@ -71,6 +71,12 @@
       </div>
     </div>
 
+    <!-- The live herd the way a farmer counts it. -->
+    <div class="bg-white rounded-xl p-3 shadow">
+      <div class="text-sm font-semibold text-slate-500 mb-2">Herd by class</div>
+      <div id="classCounts" class="grid grid-cols-4 sm:grid-cols-7 gap-2 text-center"></div>
+    </div>
+
     <div class="bg-white rounded-xl p-3 shadow">
       <div class="text-sm font-semibold text-slate-500 mb-2">
         <i class="fa-solid fa-triangle-exclamation text-amber-500"></i>
@@ -108,6 +114,14 @@
         <option value="dead">Dead</option>
         <option value="sold">Sold</option>
       </select>
+      <select id="herdClassFilter" class="border border-slate-300 rounded-lg p-2">
+        <option value="">All classes</option>
+        <option value="cow">Cows</option>
+        <option value="heifer">Heifers</option>
+        <option value="bull">Bulls</option>
+        <option value="steer">Steers</option>
+        <option value="calf">Calves</option>
+      </select>
       <button id="moveCampBtn" class="rounded-lg px-4 py-2 font-semibold whitespace-nowrap bg-slate-800 text-white">
         <i class="fa-solid fa-arrows-turn-right"></i> Move camp
       </button>
@@ -123,7 +137,7 @@
             <th class="p-3">Tag</th>
             <th class="p-3">Name</th>
             <th class="p-3">Breed</th>
-            <th class="p-3">Sex</th>
+            <th class="p-3">Class</th>
             <th class="p-3">Birth date</th>
             <th class="p-3">Camp</th>
             <th class="p-3">Last weight</th>
@@ -243,6 +257,9 @@
           <option value="female">Female</option>
           <option value="male">Male</option>
         </select>
+        <label id="fCastratedRow" class="hidden flex items-center gap-2 text-sm mt-1">
+          <input id="fCastrated" type="checkbox"> Castrated (steer)
+        </label>
       </div>
       <div>
         <label class="text-xs text-slate-500">Breed</label>

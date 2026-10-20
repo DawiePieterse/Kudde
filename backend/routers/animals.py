@@ -6,6 +6,7 @@ from pydantic import field_validator
 from sqlmodel import Session, SQLModel, select
 
 from campnames import ensure_camp
+from classes import animal_class, calved_animal_ids
 from db import get_session
 from farmweather import stamp_weather, weather_for
 from models import Animal, AnimalSex, AnimalStatus, Event, EventKind
@@ -33,6 +34,7 @@ class AnimalCreate(SQLModel):
     birth_date: Optional[date] = None
     sire_tag: Optional[str] = None
     dam_tag: Optional[str] = None
+    castrated: bool = False
     # Where the animal is when it is entered. Optional, and not a column on
     # the animal: a camp is only ever derived from the event history (see
     # events._current_locations), so this becomes the animal's first
@@ -64,6 +66,7 @@ class AnimalUpdate(SQLModel):
     birth_date: Optional[date] = None
     sire_tag: Optional[str] = None
     dam_tag: Optional[str] = None
+    castrated: Optional[bool] = None
     status: Optional[AnimalStatus] = None
 
     @field_validator("sire_tag", "dam_tag")
@@ -87,7 +90,8 @@ def _last_weights(session: Session) -> dict:
     return latest
 
 
-def _with_context(animal: Animal, last_weights: dict, locations: dict, withdrawal: dict) -> dict:
+def _with_context(animal: Animal, last_weights: dict, locations: dict, withdrawal: dict,
+                  calved: set) -> dict:
     """An animal as the apps list it: the record, plus where it is and when
     it was last weighed.
 
@@ -102,7 +106,9 @@ def _with_context(animal: Animal, last_weights: dict, locations: dict, withdrawa
             "last_weight": value, "last_weight_date": on,
             # The last day a treatment's withdrawal still runs, or None: what
             # the list flags and what a Sale is warned about.
-            "withdrawal_until": withdrawal.get(animal.id)}
+            "withdrawal_until": withdrawal.get(animal.id),
+            # Cow, heifer, bull, steer or a calf - see classes.py.
+            "class": animal_class(animal, animal.id in calved)}
 
 
 @router.get("")
@@ -125,7 +131,8 @@ def list_animals(q: Optional[str] = None, status: Optional[AnimalStatus] = None,
     last_weights = _last_weights(session)
     locations = _current_locations(session)
     withdrawal = withdrawal_until(session)
-    return [_with_context(a, last_weights, locations, withdrawal) for a in animals]
+    calved = calved_animal_ids(session)
+    return [_with_context(a, last_weights, locations, withdrawal, calved) for a in animals]
 
 
 @router.get("/{tag}")

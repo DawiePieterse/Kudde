@@ -169,6 +169,26 @@ const Kudde = {
     return String(until) >= Kudde.localDateStr();
   },
 
+  // "Heifer calf" from "heifer calf": the server's class names are lower
+  // case so they read inside a sentence; a row or a column wants a capital.
+  classLabel(cls) {
+    const s = String(cls || "");
+    return s ? s.charAt(0).toUpperCase() + s.slice(1) : "";
+  },
+
+  // The class an animal would have, worked out on the device, for one the
+  // server has not answered about yet (added offline). Same rules as
+  // backend/classes.py, less "has calved", which the phone cannot know for
+  // a new animal - and a new animal has not.
+  localClass(a) {
+    const CALF_UNTIL_DAYS = 365;
+    const born = Kudde._parseDate(a.birth_date);
+    const isCalf = born && (Date.now() - born.getTime()) / 86400000 < CALF_UNTIL_DAYS;
+    if (a.sex === "female") return isCalf ? "heifer calf" : "heifer";
+    const base = a.castrated ? "steer" : "bull";
+    return isCalf ? `${base} calf` : base;
+  },
+
   eventLabel(kind) {
     const key = String(kind || "");
     return Kudde.EVENT_LABEL[key] || (key ? key.charAt(0).toUpperCase() + key.slice(1) : "");

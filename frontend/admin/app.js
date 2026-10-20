@@ -27,6 +27,13 @@ function escapeHtml(s) {
 
 // e.g. "18-27°C, 4mm" - blank when the farm has no position set or the
 // lookup failed for that day, rather than showing a row of dashes.
+// "Cow" / "Cows", "Heifer calf" / "Heifer calves".
+function classPlural(cls, n) {
+  const label = Kudde.classLabel(cls);
+  if (n === 1) return label;
+  return label.endsWith("calf") ? label.replace(/calf$/, "calves") : `${label}s`;
+}
+
 function weatherSummary(e) {
   if (e.weather_temp_min == null && e.weather_temp_max == null) return "";
   const temp = e.weather_temp_min != null && e.weather_temp_max != null
@@ -79,6 +86,13 @@ function renderDashboard() {
   document.getElementById("statAlive").textContent = dashboard.herd_counts.alive;
   document.getElementById("statDead").textContent = dashboard.herd_counts.dead;
   document.getElementById("statSold").textContent = dashboard.herd_counts.sold;
+
+  const counts = dashboard.class_counts || {};
+  document.getElementById("classCounts").innerHTML = Object.keys(counts).map((cls) => `
+    <div>
+      <div class="text-xl font-bold">${counts[cls]}</div>
+      <div class="text-xs text-slate-500">${escapeHtml(classPlural(cls, counts[cls]))}</div>
+    </div>`).join("");
 
   const needsEl = document.getElementById("needsWeighingList");
   document.getElementById("needsWeighingEmpty").classList.toggle("hidden", dashboard.needs_weighing.length > 0);
@@ -142,8 +156,11 @@ async function loadAnimals() {
 function renderHerdTable() {
   const needle = document.getElementById("herdSearchInput").value.trim().toLowerCase();
   const statusFilter = document.getElementById("herdStatusFilter").value;
+  const classFilter = document.getElementById("herdClassFilter").value;
   const filtered = animals.filter((a) => {
     if (statusFilter && a.status !== statusFilter) return false;
+    // "calf" matches every calf class; the rest match the grown class only.
+    if (classFilter === "calf" ? !String(a.class).endsWith("calf") : classFilter && a.class !== classFilter) return false;
     if (!needle) return true;
     return a.tag.toLowerCase().includes(needle) || (a.name || "").toLowerCase().includes(needle);
   }).sort((x, y) => Kudde.compareTags(x.tag, y.tag));
@@ -154,7 +171,7 @@ function renderHerdTable() {
       <td class="p-3 font-semibold">${escapeHtml(a.tag)}</td>
       <td class="p-3">${escapeHtml(a.name || "-")}</td>
       <td class="p-3">${escapeHtml(a.breed || "-")}</td>
-      <td class="p-3">${a.sex === "male" ? "Male" : "Female"}</td>
+      <td class="p-3">${escapeHtml(Kudde.classLabel(a.class))}</td>
       <td class="p-3">${Kudde.fmtDate(a.birth_date, "-")}</td>
       <td class="p-3">${escapeHtml(a.camp || "-")}</td>
       <td class="p-3 whitespace-nowrap">${a.last_weight == null ? "-"
@@ -177,6 +194,8 @@ function fillForm(a) {
   document.getElementById("fTag").disabled = !!a; // the tag is the identity key - not editable once created
   document.getElementById("fName").value = a?.name || "";
   document.getElementById("fSex").value = a?.sex || "female";
+  document.getElementById("fCastrated").checked = !!a?.castrated;
+  syncCastratedRow();
   document.getElementById("fBreed").value = a?.breed || "";
   document.getElementById("fBirthDate").value = a?.birth_date || "";
   document.getElementById("fStatus").value = a?.status || "alive";
@@ -187,6 +206,10 @@ function fillForm(a) {
   document.getElementById("fCampRow").classList.toggle("hidden", !!a);
   document.getElementById("fCamp").value = "";
   if (!a) KuddeCamps.render(document.getElementById("fCampChips"), document.getElementById("fCamp"));
+}
+
+function syncCastratedRow() {
+  document.getElementById("fCastratedRow").classList.toggle("hidden", document.getElementById("fSex").value !== "male");
 }
 
 function openAddAnimal() {
@@ -309,6 +332,7 @@ async function saveAnimal() {
     name: document.getElementById("fName").value.trim(),
     breed: document.getElementById("fBreed").value.trim(),
     sex: document.getElementById("fSex").value,
+    castrated: document.getElementById("fSex").value === "male" && document.getElementById("fCastrated").checked,
     birth_date: document.getElementById("fBirthDate").value || null,
     sire_tag: document.getElementById("fSireTag").value.trim() || null,
     dam_tag: document.getElementById("fDamTag").value.trim() || null,
@@ -840,6 +864,8 @@ async function init() {
   wireTabs();
   document.getElementById("herdSearchInput").addEventListener("input", renderHerdTable);
   document.getElementById("herdStatusFilter").addEventListener("change", renderHerdTable);
+  document.getElementById("herdClassFilter").addEventListener("change", renderHerdTable);
+  document.getElementById("fSex").addEventListener("change", syncCastratedRow);
   document.getElementById("addAnimalBtn").addEventListener("click", openAddAnimal);
   document.getElementById("cancelAnimalBtn").addEventListener("click", closeAnimalModal);
   document.getElementById("saveAnimalBtn").addEventListener("click", saveAnimal);

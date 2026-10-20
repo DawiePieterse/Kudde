@@ -107,11 +107,17 @@
     <input id="newTag" type="text" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2" autocomplete="off">
     <label class="text-xs text-slate-500">Name</label>
     <input id="newName" type="text" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+    <!-- Two buttons, no default: a dropdown that opened on Female recorded
+         a bull as a cow whenever nobody looked. Steer is a tick under
+         Male, since a castrated male is counted apart from a bull. -->
     <label class="text-xs text-slate-500">Sex *</label>
-    <select id="newSex" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
-      <option value="female">Female</option>
-      <option value="male">Male</option>
-    </select>
+    <div class="flex rounded-lg bg-slate-100 p-1 text-sm font-semibold mb-2" role="group" aria-label="Sex">
+      <button id="newFemaleBtn" type="button" class="seg-btn flex-1">Female</button>
+      <button id="newMaleBtn" type="button" class="seg-btn flex-1">Male</button>
+    </div>
+    <label id="newCastratedRow" class="hidden flex items-center gap-2 text-base mb-2">
+      <input id="newCastrated" type="checkbox" class="w-5 h-5"> Castrated (steer)
+    </label>
     <label class="text-xs text-slate-500">Breed</label>
     <input id="newBreed" type="text" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
     <label class="text-xs text-slate-500">Birth date</label>
