@@ -170,6 +170,25 @@ body {
   .herd-table td[data-label]::before { content: attr(data-label) " "; color: #94a3b8; font-size: 0.7rem; }
 }
 
+/* Confirmation sheet (Kudde.confirm). Bottom-anchored on a phone, where
+   the thumb is; centred on a wide screen. Above every modal. */
+.sheet-backdrop {
+  position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,0.5);
+  display: flex; align-items: flex-end; justify-content: center; padding: 0.75rem;
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+}
+@media (min-width: 640px) { .sheet-backdrop { align-items: center; } }
+.sheet { background: white; border-radius: 1rem; padding: 1.25rem; width: 100%; max-width: 24rem; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+.sheet-title { font-weight: 700; font-size: 1.1rem; margin-bottom: 0.5rem; }
+.sheet-body p { color: #334155; margin-bottom: 0.4rem; }
+.sheet-warning { margin: 0.5rem 0; padding: 0.6rem 0.75rem; border-radius: 0.6rem; background: #fef3c7; color: #92400e; font-weight: 600; }
+.sheet-warning i { color: #d97706; }
+.sheet-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
+.sheet-actions button { flex: 1; padding: 0.8rem; border-radius: 0.6rem; font-weight: 600; }
+.sheet-cancel { background: #f1f5f9; color: #1e293b; }
+.sheet-confirm { background: var(--boord-blue); color: white; }
+.sheet-confirm.sheet-danger { background: var(--boord-red); }
+
 .tab-btn { flex: 1; text-align: center; padding: 0.6rem 0; font-size: 0.8rem; white-space: nowrap; padding-left: 1rem; padding-right: 1rem; }
 .tab-btn.active { color: var(--boord-blue); font-weight: 600; border-bottom: 3px solid var(--boord-blue); }
 

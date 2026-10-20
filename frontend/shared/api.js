@@ -257,6 +257,54 @@ const Kudde = {
   isOffline() { return !!Kudde._offline; },
   onOfflineChange: null,
 
+  // A confirmation sheet in place of window.confirm(). Native confirm()
+  // reads as a browser error box on an iPhone, says "OK" for an action that
+  // takes an animal out of the herd, and cannot colour the dangerous
+  // choice. This one names the action on its button, paints it red when
+  // `danger` is set, and lets a WARNING line stand out instead of being
+  // the third paragraph of a grey dialog. Resolves true for the action,
+  // false for the way out (button, backdrop tap or Escape).
+  confirm({ title, message = "", warning = "", confirmLabel = "OK", cancelLabel = "Cancel", danger = false } = {}) {
+    return new Promise((resolve) => {
+      const backdrop = document.createElement("div");
+      backdrop.className = "sheet-backdrop";
+      backdrop.setAttribute("role", "dialog");
+      backdrop.setAttribute("aria-modal", "true");
+      const lines = String(message).split("\n").filter((l) => l.trim());
+      backdrop.innerHTML = `
+        <div class="sheet">
+          <div class="sheet-title"></div>
+          <div class="sheet-body">${lines.map(() => "<p></p>").join("")}</div>
+          <div class="sheet-warning hidden"><i class="fa-solid fa-triangle-exclamation"></i> <span></span></div>
+          <div class="sheet-actions">
+            <button type="button" class="sheet-cancel"></button>
+            <button type="button" class="sheet-confirm ${danger ? "sheet-danger" : ""}"></button>
+          </div>
+        </div>`;
+      backdrop.querySelector(".sheet-title").textContent = title || "";
+      backdrop.querySelectorAll(".sheet-body p").forEach((p, i) => { p.textContent = lines[i]; });
+      if (warning) {
+        backdrop.querySelector(".sheet-warning").classList.remove("hidden");
+        backdrop.querySelector(".sheet-warning span").textContent = warning;
+      }
+      backdrop.querySelector(".sheet-cancel").textContent = cancelLabel;
+      backdrop.querySelector(".sheet-confirm").textContent = confirmLabel;
+
+      const finish = (answer) => {
+        document.removeEventListener("keydown", onKey);
+        backdrop.remove();
+        resolve(answer);
+      };
+      const onKey = (e) => { if (e.key === "Escape") finish(false); };
+      backdrop.querySelector(".sheet-cancel").addEventListener("click", () => finish(false));
+      backdrop.querySelector(".sheet-confirm").addEventListener("click", () => finish(true));
+      backdrop.addEventListener("click", (e) => { if (e.target === backdrop) finish(false); });
+      document.addEventListener("keydown", onKey);
+      document.body.appendChild(backdrop);
+      backdrop.querySelector(".sheet-cancel").focus();
+    });
+  },
+
   // role=status + aria-live=polite so VoiceOver reads the message out
   // without stealing focus from whatever the user was doing.
   //

@@ -505,10 +505,10 @@ function closePhotoViewer() {
 }
 
 async function deleteAnimalPhoto(id) {
-  // A native confirm, not a custom sheet: the x on a thumbnail is small and
-  // sits right where a thumb lands when scrolling the photo strip, and a
-  // deleted photo has no undo.
-  if (!confirm(`Delete this photo of ${activeTag}? This can't be undone.`)) return;
+  // The x on a thumbnail is small and sits right where a thumb lands when
+  // scrolling the photo strip, and a deleted photo has no undo.
+  if (!await Kudde.confirm({ title: `Delete this photo of ${activeTag}?`, message: "This can't be undone.",
+                             confirmLabel: "Delete", danger: true })) return;
   try {
     await Kudde.api(`/api/photos/${id}`, { method: "DELETE" });
     Kudde.setOffline(false);
@@ -606,12 +606,12 @@ function withdrawalEnd(eventDate, days) {
   return Kudde.localDateStr(d);
 }
 
-// What the confirm() before a sale has to say if the animal is still in
+// What the sheet before a sale has to say if the animal is still in
 // withdrawal: the one thing on this screen that can cost the farm its
 // buyer. A warning, not a refusal - the sale may be to another farm.
 function saleWarning(animal) {
   return animal && Kudde.inWithdrawal(animal.withdrawal_until)
-    ? `\n\nWARNING: ${animal.tag} is in withdrawal until ${Kudde.fmtDate(animal.withdrawal_until)} and should not be slaughtered before then.`
+    ? `${animal.tag} is in withdrawal until ${Kudde.fmtDate(animal.withdrawal_until)} and should not be slaughtered before then.`
     : "";
 }
 
@@ -692,7 +692,13 @@ async function confirmEvent() {
       ? `Record ${activeTag} as dead`
       : `Record ${activeTag} as sold`;
     const warning = activeEventKind === "sale" ? saleWarning(animals.find((a) => a.tag === activeTag)) : "";
-    if (!confirm(`${what}? It will be marked ${STATUS_LABEL[STATUS_ON_EVENT[activeEventKind]]} and leave the live herd.${warning}`)) return;
+    const ok = await Kudde.confirm({
+      title: `${what}?`,
+      message: `It will be marked ${STATUS_LABEL[STATUS_ON_EVENT[activeEventKind]]} and leave the live herd.`,
+      warning, danger: true,
+      confirmLabel: activeEventKind === "death" ? "Record death" : "Record sale",
+    });
+    if (!ok) return;
   }
 
   const value = EVENT_FIELD_CONFIG[activeEventKind].showValue
@@ -1065,7 +1071,10 @@ async function saveSessionEntry() {
   // The same tag twice in one session is usually the previous animal still
   // in the box, not a second weighing - asked, not refused.
   const before = session.log.find((e) => e.tag === animal.tag);
-  if (before && !confirm(`${animal.tag} is already in this session${before.value != null ? ` (${Kudde.fmtKg(before.value)})` : ""}. Record it again?`)) return;
+  if (before && !await Kudde.confirm({
+    title: `${animal.tag} is already in this session`,
+    message: before.value != null ? `Recorded at ${Kudde.fmtKg(before.value)}. Record it again?` : "Record it again?",
+    confirmLabel: "Record again" })) return;
 
   const result = await saveEvent({
     tag: animal.tag, kind: session.kind, event_date: session.date,
@@ -1151,10 +1160,9 @@ function describeOutboxEntry(entry) {
 }
 
 // Tapping the pill walks through each refused entry with the server's own
-// reason and asks, one by one, whether to throw it away. Native confirm()
-// rather than a custom list: it needs no new markup, can't be dismissed by
-// a stray tap outside it, and reads the same on every phone. Cancel keeps
-// the entry - so a user who just wants to read the reasons loses nothing.
+// reason and asks, one by one, whether to throw it away. Keep is the way
+// out (button, backdrop, Escape), so a user who just wants to read the
+// reasons loses nothing.
 async function reviewFailedEntries() {
   const failed = await IDB.getFailed();
   if (!failed.length) {
@@ -1162,11 +1170,12 @@ async function reviewFailedEntries() {
     return;
   }
   for (const entry of failed) {
-    const keep = !confirm(
-      `${describeOutboxEntry(entry)} was not saved.\n\n` +
-      `The server said: ${entry.error || "no reason given"}\n\n` +
-      "OK discards it from this device. Cancel keeps it here.");
-    if (!keep) await IDB.discard(entry.uuid);
+    const discard = await Kudde.confirm({
+      title: `${describeOutboxEntry(entry)} was not saved`,
+      message: `The server said: ${entry.error || "no reason given"}\nDiscard it from this device, or keep it here to look at later.`,
+      confirmLabel: "Discard", cancelLabel: "Keep", danger: true,
+    });
+    if (discard) await IDB.discard(entry.uuid);
   }
   await refreshSyncStatusPill();
 }

@@ -734,8 +734,10 @@ Saving:
 - Sends the event to the server immediately if reachable.
 - If not, saves it to this device's outbox and shows *"Saved on this
   device - will sync when online"* instead.
-- For a **Sale** or **Death** event, first asks you to confirm (naming
-  the tag, since either one takes the animal out of the live herd), then
+- For a **Sale** or **Death** event, first asks you to confirm on a sheet
+  naming the tag, with a red **Record sale** / **Record death** button
+  (either one takes the animal out of the live herd) and an amber warning
+  if the animal is still in withdrawal - then
   flips the animal's status right away on this device (the same rule the server applies), so the list and
   the detail card are correct immediately, connected or not.
 
@@ -866,8 +868,8 @@ Behind the scenes:
   that one entry stops being sent so it doesn't block every entry queued
   behind it, but it is **kept on the device, marked failed**. The sync
   pill turns red and adds *"N failed"*. Tap the pill: each failed item is
-  shown with the server's reason, and **OK** discards it, **Cancel**
-  keeps it. Nothing refused is thrown away until you say so. **Two
+  shown with the server's reason, and **Discard** throws it away,
+  **Keep** keeps it. Nothing refused is thrown away until you say so. **Two
   devices creating the same new tag while both offline is the one case
   Kudde can't reconcile for you** - whichever syncs first wins, and the
   second shows up as failed on its device. If more than one device might

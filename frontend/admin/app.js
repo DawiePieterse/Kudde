@@ -270,7 +270,8 @@ async function refreshPhotosList() {
       thumb.querySelector(".delete-photo-btn").addEventListener("click", async () => {
         // A deleted photo has no undo, and the x is small enough to hit
         // while aiming for the photo itself.
-        if (!confirm(`Delete this photo of ${editingTag}? This can't be undone.`)) return;
+        if (!await Kudde.confirm({ title: `Delete this photo of ${editingTag}?`, message: "This can't be undone.",
+                                   confirmLabel: "Delete", danger: true })) return;
         try {
           await Kudde.api(`/api/photos/${p.id}`, { method: "DELETE" });
         } catch (e) {
@@ -431,8 +432,13 @@ async function addEvent() {
     const label = kind === "death" ? "dead" : "sold";
     const animal = animals.find((a) => a.tag === editingTag);
     const warning = kind === "sale" && animal && Kudde.inWithdrawal(animal.withdrawal_until)
-      ? `\n\nWARNING: ${editingTag} is in withdrawal until ${Kudde.fmtDate(animal.withdrawal_until)} and should not be slaughtered before then.` : "";
-    if (!confirm(`Record ${editingTag} as ${label}? It will be marked ${STATUS_LABEL[label]} and leave the live herd.${warning}`)) return;
+      ? `${editingTag} is in withdrawal until ${Kudde.fmtDate(animal.withdrawal_until)} and should not be slaughtered before then.` : "";
+    const ok = await Kudde.confirm({
+      title: `Record ${editingTag} as ${label}?`,
+      message: `It will be marked ${STATUS_LABEL[label]} and leave the live herd.`,
+      warning, danger: true, confirmLabel: kind === "death" ? "Record death" : "Record sale",
+    });
+    if (!ok) return;
   }
 
   const payload = {
