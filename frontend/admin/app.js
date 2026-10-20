@@ -761,8 +761,18 @@ async function shiftCamp(id, delta) {
 
 let moveLocations = [];        // last /api/locations response
 let moveSelectedLocation = null;
+let groupMode = "move";        // "move" or "treat": what step two does with the picked camp
 
-async function openMoveModal() {
+async function openMoveModal() { await openGroupModal("move"); }
+async function openTreatModal() { await openGroupModal("treat"); }
+
+// Move camp and Treat group share step one (pick the camp, tick the
+// animals) and differ only in what is recorded, so one modal serves both.
+async function openGroupModal(mode) {
+  groupMode = mode;
+  document.getElementById("groupTitle").textContent = mode === "move" ? "Move camp" : "Treat group";
+  document.getElementById("groupHint").textContent = mode === "move"
+    ? "Pick the camp everyone is moving from" : "Pick the camp the group is in";
   let data;
   try {
     data = await Kudde.api("/api/locations");
@@ -777,6 +787,7 @@ async function openMoveModal() {
   renderMoveLocations();
   document.getElementById("moveLocationsView").classList.remove("hidden");
   document.getElementById("moveAnimalsView").classList.add("hidden");
+  document.getElementById("treatAnimalsView").classList.add("hidden");
   document.getElementById("moveModal").classList.remove("hidden");
   document.getElementById("moveModal").classList.add("flex");
 }
@@ -805,6 +816,7 @@ function renderMoveLocations() {
 function openMoveAnimals(index) {
   moveSelectedLocation = moveLocations[index];
   if (!moveSelectedLocation) return;
+  if (groupMode === "treat") { openTreatAnimals(); return; }
 
   document.getElementById("moveFromLocation").textContent = moveSelectedLocation.location === null
     ? "no camp" : moveSelectedLocation.location;
@@ -826,7 +838,53 @@ function renderMoveAnimals() {
     </label>`).join("");
 }
 
+function openTreatAnimals() {
+  document.getElementById("treatFromLocation").textContent = moveSelectedLocation.location === null
+    ? "the animals with no camp" : moveSelectedLocation.location;
+  document.getElementById("treatDate").value = Kudde.localDateStr();
+  for (const id of ["treatProduct", "treatDose", "treatWithdrawal", "treatNote"]) document.getElementById(id).value = "";
+  KuddeProducts.render(document.getElementById("treatProductChips"), {
+    product: document.getElementById("treatProduct"), dose: document.getElementById("treatDose"),
+    withdrawal: document.getElementById("treatWithdrawal") });
+  document.getElementById("treatAnimalsList").innerHTML = moveSelectedLocation.animals.map((a) => `
+    <label class="flex items-center gap-2 py-1">
+      <input type="checkbox" class="treat-animal-check w-4 h-4" data-tag="${escapeHtml(a.tag)}" checked>
+      <span>${escapeHtml(a.tag)}${a.name ? ` - ${escapeHtml(a.name)}` : ""}</span>
+    </label>`).join("");
+  document.getElementById("moveLocationsView").classList.add("hidden");
+  document.getElementById("treatAnimalsView").classList.remove("hidden");
+}
+
+async function confirmTreat() {
+  const tags = Array.from(document.querySelectorAll(".treat-animal-check:checked")).map((el) => el.dataset.tag);
+  if (!tags.length) { Kudde.toast("Select at least one animal"); return; }
+  const eventDate = document.getElementById("treatDate").value;
+  if (!eventDate) { Kudde.toast("Date is required"); return; }
+  const product = document.getElementById("treatProduct").value.trim();
+  if (!product) { Kudde.toast("Say what the product is"); return; }
+  const rawDays = document.getElementById("treatWithdrawal").value.trim();
+  const withdrawal_days = /^\d+$/.test(rawDays) ? parseInt(rawDays, 10) : null;
+  if (rawDays && withdrawal_days === null) { Kudde.toast("Withdrawal must be a whole number of days"); return; }
+
+  const payload = { tags, event_date: eventDate, product, dose: document.getElementById("treatDose").value.trim(),
+                    withdrawal_days, note: document.getElementById("treatNote").value.trim() };
+  try {
+    await Kudde.api("/api/events/treatment/bulk", { method: "POST", body: payload });
+    Kudde.setOffline(false);
+  } catch (e) {
+    if (Kudde.isNetworkError(e)) { Kudde.setOffline(true); Kudde.toast("Offline - could not save"); return; }
+    Kudde.toast(Kudde.errorDetail(e));
+    return;
+  }
+  KuddeProducts.remember({ product, dose: payload.dose, withdrawal_days });
+  closeMoveModal();
+  Kudde.toast(`Treated ${tags.length} animal${tags.length === 1 ? "" : "s"} with ${product}`);
+  await loadAnimals();
+  await loadDashboard();
+}
+
 function backToMoveLocations() {
+  document.getElementById("treatAnimalsView").classList.add("hidden");
   document.getElementById("moveAnimalsView").classList.add("hidden");
   document.getElementById("moveLocationsView").classList.remove("hidden");
   moveSelectedLocation = null;
@@ -897,6 +955,9 @@ async function init() {
   document.getElementById("fGpsLat").addEventListener("change", syncMarkerFromInputs);
   document.getElementById("fGpsLng").addEventListener("change", syncMarkerFromInputs);
   document.getElementById("moveCampBtn").addEventListener("click", openMoveModal);
+  document.getElementById("treatGroupBtn").addEventListener("click", openTreatModal);
+  document.getElementById("backTreatBtn").addEventListener("click", backToMoveLocations);
+  document.getElementById("confirmTreatBtn").addEventListener("click", confirmTreat);
   document.getElementById("cancelMoveBtn").addEventListener("click", closeMoveModal);
   document.getElementById("backMoveBtn").addEventListener("click", backToMoveLocations);
   document.getElementById("confirmMoveBtn").addEventListener("click", confirmMove);

@@ -201,29 +201,20 @@ def _batch_member_uuid(client_uuid: str, animal_id: int) -> str:
     return f"{client_uuid}:{animal_id}"
 
 
-@router.post("/events/movement/bulk")
-def create_bulk_movement(payload: BulkMovementCreate, session: Session = Depends(get_session)):
-    """Record the same movement for every listed animal in one call, so a
-    camp move lands as one save instead of one request per tag. Tags are
-    resolved up front - if any one of them doesn't exist, nothing is
-    written, rather than moving half a camp and failing partway through.
+def _record_batch(session: Session, animals: list, client_uuid: Optional[str],
+                  event_date: date, build) -> list:
+    """The same event for every animal in `animals`, written once however
+    many times the batch is replayed.
 
-    Idempotent on client_uuid, exactly as create_event() is and for the same
-    reason: the field app queues a whole camp move in its outbox and replays
-    it after an 8-second timeout, so a slow-but-landed request would
-    otherwise move the camp twice - a duplicate movement per animal, which
-    is what _current_locations() reads to decide where the herd is.
+    Shared by the bulk camp move and the bulk treatment. Idempotent on
+    client_uuid exactly as create_event() is and for the same reason: the
+    field app queues a whole batch in its outbox and replays it after an
+    8-second timeout, so a slow-but-landed request would otherwise record
+    every animal twice. `build(animal, key)` makes one animal's event.
     """
-    if not payload.tags:
-        raise HTTPException(400, "At least one tag is required")
-    animals = [_animal_by_tag(session, tag) for tag in payload.tags]
-    location = _camp_location(session, EventKind.movement, payload.location)
-    if not location:
-        raise HTTPException(422, "a camp move needs the camp it is moving to")
-
     already = {}
-    if payload.client_uuid:
-        keys = [_batch_member_uuid(payload.client_uuid, a.id) for a in animals]
+    if client_uuid:
+        keys = [_batch_member_uuid(client_uuid, a.id) for a in animals]
         already = {
             event.client_uuid: event
             for event in session.exec(select(Event).where(Event.client_uuid.in_(keys))).all()
@@ -232,23 +223,21 @@ def create_bulk_movement(payload: BulkMovementCreate, session: Session = Depends
     events = []
     fresh = []
     for animal in animals:
-        key = _batch_member_uuid(payload.client_uuid, animal.id) if payload.client_uuid else None
+        key = _batch_member_uuid(client_uuid, animal.id) if client_uuid else None
         if key is not None and key in already:
             # Already on file from an earlier attempt at this same batch,
             # weather and all - leave it exactly as it was recorded.
             events.append(already[key])
             continue
-        event = Event(animal_id=animal.id, kind=EventKind.movement,
-                      event_date=payload.event_date, location=location,
-                      note=payload.note, client_uuid=key)
+        event = build(animal, key)
         events.append(event)
         fresh.append(event)
 
     if fresh:
-        # One lookup for the whole camp: every animal in the batch shares the
-        # farm's position and the move's date, so asking per animal would be
-        # the same answer fetched once per head of cattle.
-        weather = _weather_for(session, payload.event_date)
+        # One lookup for the whole batch: every animal in it shares the
+        # farm's position and the date, so asking per animal would be the
+        # same answer fetched once per head of cattle.
+        weather = _weather_for(session, event_date)
         for event in fresh:
             _stamp_weather(event, weather)
 
@@ -257,6 +246,63 @@ def create_bulk_movement(payload: BulkMovementCreate, session: Session = Depends
     for event in events:
         session.refresh(event)
     return events
+
+
+@router.post("/events/movement/bulk")
+def create_bulk_movement(payload: BulkMovementCreate, session: Session = Depends(get_session)):
+    """Record the same movement for every listed animal in one call, so a
+    camp move lands as one save instead of one request per tag. Tags are
+    resolved up front - if any one of them doesn't exist, nothing is
+    written, rather than moving half a camp and failing partway through.
+    """
+    if not payload.tags:
+        raise HTTPException(400, "At least one tag is required")
+    animals = [_animal_by_tag(session, tag) for tag in payload.tags]
+    location = _camp_location(session, EventKind.movement, payload.location)
+    if not location:
+        raise HTTPException(422, "a camp move needs the camp it is moving to")
+    return _record_batch(
+        session, animals, payload.client_uuid, payload.event_date,
+        lambda animal, key: Event(animal_id=animal.id, kind=EventKind.movement,
+                                  event_date=payload.event_date, location=location,
+                                  note=payload.note, client_uuid=key))
+
+
+class BulkTreatmentCreate(SQLModel):
+    """Treat a whole group at once: the dosing day, when every animal in a
+    camp gets the same product. The same fields a single treatment
+    carries (see EventCreate), applied to every tag."""
+    tags: list[str]
+    event_date: date
+    product: str = ""
+    dose: str = ""
+    withdrawal_days: Optional[int] = None
+    note: str = ""
+    client_uuid: Optional[str] = None
+
+    @field_validator("withdrawal_days")
+    @classmethod
+    def _withdrawal_is_days(cls, value: Optional[int]) -> Optional[int]:
+        if value is not None and value < 0:
+            raise ValueError("withdrawal days cannot be negative")
+        return value
+
+
+@router.post("/events/treatment/bulk")
+def create_bulk_treatment(payload: BulkTreatmentCreate, session: Session = Depends(get_session)):
+    """Record the same treatment for every listed animal in one call. Tags
+    are resolved up front, as for a camp move: all or nothing."""
+    if not payload.tags:
+        raise HTTPException(400, "At least one tag is required")
+    animals = [_animal_by_tag(session, tag) for tag in payload.tags]
+    product = " ".join(payload.product.split())
+    dose = " ".join(payload.dose.split())
+    return _record_batch(
+        session, animals, payload.client_uuid, payload.event_date,
+        lambda animal, key: Event(animal_id=animal.id, kind=EventKind.treatment,
+                                  event_date=payload.event_date, note=payload.note,
+                                  product=product, dose=dose,
+                                  withdrawal_days=payload.withdrawal_days, client_uuid=key))
 
 
 def withdrawal_until(session: Session) -> dict:

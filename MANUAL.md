@@ -968,6 +968,13 @@ move described in [chapter 4](#moving-a-camp) - the office version of the
 same action, for a move somebody phoned in rather than captured at the
 gate.
 
+**Treat group** is the dosing day from the desk: pick the camp, untick
+any animal that wasn't treated, then the product (chips for the bottles
+used before), dose, withdrawal days, date and a note, and **Record
+treatment** writes one treatment event per animal - the same record a
+Field treat session makes, including the withdrawal that then flags
+each animal.
+
 ### The herd table
 
 Columns: Tag, Name, Breed, Class, Birth date, Camp, Last weight (with
