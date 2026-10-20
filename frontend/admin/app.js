@@ -94,6 +94,14 @@ function renderDashboard() {
       <div class="text-xs text-slate-500">${escapeHtml(classPlural(cls, counts[cls]))}</div>
     </div>`).join("");
 
+  const campCounts = dashboard.camp_counts || [];
+  document.getElementById("campCountsEmpty").classList.toggle("hidden", campCounts.length > 0);
+  document.getElementById("campCounts").innerHTML = campCounts.map((c) => `
+    <div class="rounded-lg px-3 py-2 ${c.camp === null ? "bg-amber-50" : "bg-slate-50"}">
+      <span class="font-semibold">${c.camp === null ? "No camp" : escapeHtml(c.camp)}</span>
+      <span class="text-slate-500 ml-1">${c.alive}</span>
+    </div>`).join("");
+
   const needsEl = document.getElementById("needsWeighingList");
   document.getElementById("needsWeighingEmpty").classList.toggle("hidden", dashboard.needs_weighing.length > 0);
   needsEl.innerHTML = dashboard.needs_weighing.map((a) => `
@@ -168,15 +176,15 @@ function renderHerdTable() {
   const body = document.getElementById("herdTableBody");
   body.innerHTML = filtered.map((a) => `
     <tr class="border-b last:border-0 hover:bg-slate-50 cursor-pointer" data-tag="${escapeHtml(a.tag)}">
-      <td class="p-3 font-semibold">${escapeHtml(a.tag)}</td>
-      <td class="p-3">${escapeHtml(a.name || "-")}</td>
-      <td class="p-3">${escapeHtml(a.breed || "-")}</td>
-      <td class="p-3">${escapeHtml(Kudde.classLabel(a.class))}</td>
-      <td class="p-3">${Kudde.fmtDate(a.birth_date, "-")}</td>
-      <td class="p-3">${escapeHtml(a.camp || "-")}</td>
-      <td class="p-3 whitespace-nowrap">${a.last_weight == null ? "-"
+      <td class="p-3 font-semibold herd-tag">${escapeHtml(a.tag)}${a.name ? ` <span class="font-normal text-slate-500 sm:hidden">- ${escapeHtml(a.name)}</span>` : ""}</td>
+      <td class="p-3 herd-name ${a.name ? "" : "herd-empty"}">${escapeHtml(a.name || "-")}</td>
+      <td class="p-3 ${a.breed ? "" : "herd-empty"}" data-label="Breed">${escapeHtml(a.breed || "-")}</td>
+      <td class="p-3" data-label="Class">${escapeHtml(Kudde.classLabel(a.class))}</td>
+      <td class="p-3 ${a.birth_date ? "" : "herd-empty"}" data-label="Born">${Kudde.fmtDate(a.birth_date, "-")}</td>
+      <td class="p-3 ${a.camp ? "" : "herd-empty"}" data-label="Camp">${escapeHtml(a.camp || "-")}</td>
+      <td class="p-3 whitespace-nowrap ${a.last_weight == null ? "herd-empty" : ""}" data-label="Last weight">${a.last_weight == null ? "-"
         : `${Kudde.fmtKg(a.last_weight)} <span class="text-xs text-slate-400">${Kudde.fmtDate(a.last_weight_date)}</span>`}</td>
-      <td class="p-3 whitespace-nowrap"><span class="text-xs font-semibold px-2 py-1 rounded-full status-pill-${a.status}">${STATUS_LABEL[a.status]}</span>${Kudde.inWithdrawal(a.withdrawal_until) ? `<div class="mt-1"><span class="withdrawal-pill text-xs font-semibold px-2 py-0.5 rounded-full">Withdrawal to ${Kudde.fmtDate(a.withdrawal_until)}</span></div>` : ""}</td>
+      <td class="p-3 whitespace-nowrap herd-status"><span class="text-xs font-semibold px-2 py-1 rounded-full status-pill-${a.status}">${STATUS_LABEL[a.status]}</span>${Kudde.inWithdrawal(a.withdrawal_until) ? `<div class="mt-1"><span class="withdrawal-pill text-xs font-semibold px-2 py-0.5 rounded-full">Withdrawal to ${Kudde.fmtDate(a.withdrawal_until)}</span></div>` : ""}</td>
     </tr>`).join("");
   document.getElementById("herdEmpty").classList.toggle("hidden", filtered.length > 0);
 

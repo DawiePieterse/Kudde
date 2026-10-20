@@ -899,6 +899,12 @@ The live herd as it is counted: cows, heifers, bulls, steers, and the
 three kinds of calf. See [Cows, heifers, bulls, steers and
 calves](#cows-heifers-bulls-steers-and-calves) for how each is decided.
 
+### Herd by camp
+
+Where the live herd is, one tile per camp in Settings order with the
+number of alive animals in it, and an amber *No camp* tile for any not yet
+placed anywhere.
+
 ### The needs-weighing list
 
 Every alive animal with no weight event in the last 182 days (see
@@ -931,7 +937,10 @@ gate.
 ### The herd table
 
 Columns: Tag, Name, Breed, Class, Birth date, Camp, Last weight (with
-its date), Status. Click any row to open that animal.
+its date), Status. On a phone the table becomes a stack of cards - tag
+and name on top, status at the right, the rest beneath, with empty fields
+left out - instead of a table that needed sideways scrolling to reach the
+status column. Click any row to open that animal.
 
 ### Editing an animal
 
@@ -1002,6 +1011,15 @@ below is for the farm details and position only.
 
 A camp typed with **Other...** anywhere in either app appears here on its
 own, at the end of the list, for you to tidy.
+
+### Export
+
+Two buttons, **Animals (CSV)** and **Events (CSV)**, each downloading the
+whole table as a file a spreadsheet opens directly - for the accountant,
+the vet, or your own sums. Animals carry their camp, class, last weight
+and withdrawal date; every event row names the animal's tag, so the file
+reads on its own. The files are UTF-8 with a byte-order mark, which is
+what Excel on Windows needs to show accented names correctly.
 
 ### GPS coordinates, and the weather
 

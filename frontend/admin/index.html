@@ -77,6 +77,13 @@
       <div id="classCounts" class="grid grid-cols-4 sm:grid-cols-7 gap-2 text-center"></div>
     </div>
 
+    <!-- Where the live herd is, camp by camp. -->
+    <div class="bg-white rounded-xl p-3 shadow">
+      <div class="text-sm font-semibold text-slate-500 mb-2">Herd by camp</div>
+      <div id="campCounts" class="flex flex-wrap gap-2"></div>
+      <div id="campCountsEmpty" class="hidden text-slate-400 text-sm">No camps yet</div>
+    </div>
+
     <div class="bg-white rounded-xl p-3 shadow">
       <div class="text-sm font-semibold text-slate-500 mb-2">
         <i class="fa-solid fa-triangle-exclamation text-amber-500"></i>
@@ -130,8 +137,11 @@
       </button>
     </div>
 
+    <!-- A table on a desk, a stack of cards on a phone (styles.css,
+         .herd-table): eight columns at 390px clipped Status off the edge
+         and needed a sideways scroll to reach it. -->
     <div class="bg-white rounded-xl shadow overflow-x-auto">
-      <table class="w-full text-sm">
+      <table class="w-full text-sm herd-table">
         <thead>
           <tr class="text-left text-xs text-slate-500 border-b">
             <th class="p-3">Tag</th>
@@ -220,6 +230,22 @@
         Every event recorded from here on is stamped with that day's weather at this position, from
         <a href="https://open-meteo.com" target="_blank" rel="noopener" class="underline">Open-Meteo</a>.</div>
       <div id="farmMap" class="rounded-lg border border-slate-200" style="height: 320px;"></div>
+    </div>
+
+    <div class="bg-white rounded-xl p-3 shadow">
+      <div class="text-sm font-semibold text-slate-500 mb-1">Export</div>
+      <div class="text-xs text-slate-400 mb-2">
+        The herd and its history as CSV files, for the accountant, the vet or a spreadsheet.
+        Every animal with its camp, class and last weight; every event with the animal's tag on the row.
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <a href="/api/export/animals.csv" download class="rounded-lg px-4 py-2 text-sm font-semibold bg-slate-100">
+          <i class="fa-solid fa-download"></i> Animals (CSV)
+        </a>
+        <a href="/api/export/events.csv" download class="rounded-lg px-4 py-2 text-sm font-semibold bg-slate-100">
+          <i class="fa-solid fa-download"></i> Events (CSV)
+        </a>
+      </div>
     </div>
 
     <button id="saveFarmBtn" class="w-full kudde-btn-primary rounded-lg py-2 font-semibold">Save settings</button>

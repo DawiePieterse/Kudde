@@ -6,7 +6,7 @@ from sqlmodel import Session, func, select
 from classes import CLASSES, animal_class, calved_animal_ids
 from db import get_session
 from models import Animal, AnimalStatus, Event, EventKind
-from routers.events import withdrawal_until
+from routers.events import list_locations, withdrawal_until
 from tags import tag_sort_key
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -70,9 +70,16 @@ def dashboard(session: Session = Depends(get_session)):
     for a in alive:
         class_counts[animal_class(a, a.id in calved)] += 1
 
+    # Where the live herd is, camp by camp, in Settings order - the same
+    # rows the Move picker shows, reduced to a count. The None row is the
+    # animals with no camp recorded.
+    camp_counts = [{"camp": row["location"], "alive": len(row["animals"])}
+                   for row in list_locations(session)]
+
     return {
         "herd_counts": herd_counts,
         "class_counts": class_counts,
+        "camp_counts": camp_counts,
         "in_withdrawal": in_withdrawal,
         "total_alive": herd_counts[AnimalStatus.alive.value],
         "recent_events": recent_events,
