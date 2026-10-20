@@ -184,12 +184,13 @@ being saved.** Events recorded before you set the position keep no
 weather; it is not backfilled.
 
 The Field app's quick-action buttons cover all six, the events you'd
-realistically capture while standing next to the animal. A newly recorded
-animal's birth date is set on the **Add animal** form, not with a birth
-event; the **Birth** button is for recording a *calving* against the cow -
-the camp it happened in, and in the note what matters afterwards: calving
-ease, whether it had to be pulled, whether cow and calf are up and
-sucking. Then add the calf with **Add animal**, dam tag filled in.
+realistically capture while standing next to the animal. On a cow, the
+birth button reads **Calved** and opens the calving screen: one form that
+records the birth event on the cow *and* adds the calf with her as its
+dam - see [Recording a calving](#recording-a-calving) in chapter 4. The
+cow's birth event carries the camp it happened in and, in the note, what
+matters afterwards: calving ease, whether it had to be pulled, whether
+cow and calf are up and sucking. A bull has no Calved button.
 
 ### Camps, and moving a whole one
 
@@ -667,7 +668,9 @@ is set, so a sold animal's tag still finds it.
 Tapping an animal opens its tag, name/breed/sex, status pill, and six
 quick-action buttons:
 
-**Weight · Treatment · Move · Birth · Sale · Death**
+**Weight · Treatment · Move · Calved · Sale · Death**
+
+(**Calved** appears on cows only.)
 
 Each opens a small form: a date (defaults to today), a value in kg
 (weight only), the camp as a row of chips (movement and birth only - see
@@ -696,6 +699,24 @@ Saving:
 
 A **Weight** event with the kg box empty is refused rather than saved
 blank - see [The six event kinds](#the-six-event-kinds).
+
+### Recording a calving
+
+Standing at a cow that has calved, tap her, then **Calved**. One screen
+asks for:
+
+- the **date** (today by default) - it becomes the calf's birth date;
+- the **calf's tag** and whether it is a **heifer** or a **bull calf**;
+- optionally the calf's **name** and the **sire's tag**;
+- the **breed** and **camp**, both filled in from the cow and changeable;
+- a **note** on the calving itself - ease, pulled or not, up and sucking.
+
+**Save** records two things at once: a birth event on the cow (camp and
+note, with *Calf <tag>* in front of the note so her history reads
+right), and the calf as a new animal - alive, with the cow as dam, born
+on that date, in that camp. Both land together or not at all: a calf tag
+already in use is refused and the cow gets no birth event either. Offline
+it is one entry in the outbox, replayed as one.
 
 ### Weigh and treat sessions
 
@@ -782,7 +803,8 @@ Behind the scenes:
 - Anything that couldn't reach the server goes into an on-device outbox
   and is retried automatically: every 20 seconds, the moment the browser
   reports it's back online, and on every pull-to-refresh. The outbox
-  carries new animals, events, whole camp moves, and photos alike.
+  carries new animals, events, whole camp moves, calvings, and photos
+  alike.
 - **A retry can't record the same thing twice.** Each capture is stamped
   with an id on the device at the moment it's taken, and the server stores
   one record per id. This matters more than it sounds: the app gives up on

@@ -254,6 +254,7 @@ async function openAnimalDetail(tag) {
     [animal.name, animal.breed, animal.sex === "male" ? "Male" : "Female",
      Kudde.inWithdrawal(animal.withdrawal_until) ? `Withdrawal to ${Kudde.fmtDate(animal.withdrawal_until)}` : null]
       .filter(Boolean).join(" · ");
+  document.getElementById("calvedBtn").classList.toggle("hidden", animal.sex !== "female");
   const pill = document.getElementById("detailStatusPill");
   pill.textContent = STATUS_LABEL[animal.status] || animal.status;
   pill.className = `text-xs font-semibold px-2 py-1 rounded-full status-pill-${animal.status}`;
@@ -544,6 +545,103 @@ async function confirmEvent() {
   if (document.getElementById("animalDetailModal").classList.contains("flex")) {
     openAnimalDetail(activeTag || document.getElementById("detailTag").textContent);
   }
+}
+
+// ---------------------------------------------------------------------
+// Calving: the cow calved, and here is the calf
+// ---------------------------------------------------------------------
+//
+// One screen for what used to be two forms and a retyped dam tag: a birth
+// event on the cow (camp, and in the note how it went) and the new calf
+// with her as dam, her breed, the date as birth date and the same camp.
+// The server records both or neither (routers/calvings.py); offline it is
+// one outbox entry, replayed as one.
+
+let calfSex = "female";
+
+function setCalfSex(sex) {
+  calfSex = sex;
+  document.getElementById("calfFemaleBtn").classList.toggle("active", sex === "female");
+  document.getElementById("calfMaleBtn").classList.toggle("active", sex === "male");
+}
+
+function openCalving() {
+  const dam = animals.find((a) => a.tag === activeTag);
+  if (!dam) return;
+  document.getElementById("calvingDam").textContent = dam.tag;
+  document.getElementById("calvingDate").value = Kudde.localDateStr();
+  for (const id of ["calfTag", "calfName", "calfSireTag", "calvingNote"]) document.getElementById(id).value = "";
+  // The cow's breed and camp are the calf's until told otherwise.
+  document.getElementById("calfBreed").value = dam.breed || "";
+  document.getElementById("calvingCamp").value = dam.camp || "";
+  KuddeCamps.render(document.getElementById("calvingCampChips"), document.getElementById("calvingCamp"));
+  // No default sex: the two buttons start unlit, so the choice is made,
+  // not inherited from whichever came first in the markup.
+  calfSex = null;
+  document.getElementById("calfFemaleBtn").classList.remove("active");
+  document.getElementById("calfMaleBtn").classList.remove("active");
+  document.getElementById("calvingModal").classList.remove("hidden");
+  document.getElementById("calvingModal").classList.add("flex");
+  document.getElementById("calfTag").focus();
+}
+
+function closeCalving() {
+  document.getElementById("calvingModal").classList.add("hidden");
+  document.getElementById("calvingModal").classList.remove("flex");
+}
+
+async function confirmCalving() {
+  const dam = animals.find((a) => a.tag === activeTag);
+  if (!dam) return;
+  const eventDate = document.getElementById("calvingDate").value;
+  if (!eventDate) { Kudde.toast("Date is required"); return; }
+  const calfTag = document.getElementById("calfTag").value.trim();
+  if (!calfTag) { Kudde.toast("The calf needs a tag number"); return; }
+  if (animals.some((a) => a.tag.toLowerCase() === calfTag.toLowerCase())) { Kudde.toast(`Tag ${calfTag} is already in use`); return; }
+  if (!calfSex) { Kudde.toast("Heifer or bull calf?"); return; }
+
+  const camp = document.getElementById("calvingCamp").value.trim();
+  const payload = {
+    dam_tag: dam.tag,
+    event_date: eventDate,
+    calf: {
+      tag: calfTag, sex: calfSex,
+      name: document.getElementById("calfName").value.trim(),
+      breed: document.getElementById("calfBreed").value.trim(),
+      sire_tag: document.getElementById("calfSireTag").value.trim() || null,
+    },
+    camp,
+    note: document.getElementById("calvingNote").value.trim(),
+    client_uuid: uuid(),   // see saveEvent: what makes a replay record once
+  };
+
+  let calf;
+  let pending = false;
+  try {
+    calf = (await Kudde.api("/api/calvings", { method: "POST", body: payload })).calf;
+    Kudde.setOffline(false);
+  } catch (e) {
+    if (!Kudde.isNetworkError(e)) { Kudde.toast(Kudde.errorDetail(e)); return; }
+    Kudde.setOffline(true);
+    pending = true;
+    await IDB.enqueue({ uuid: payload.client_uuid, kind: "calving", payload });
+    refreshSyncStatusPill().catch(() => {});
+    calf = { ...payload.calf, dam_tag: dam.tag, birth_date: eventDate, status: "alive",
+             camp: camp || null, last_weight: null, last_weight_date: null, _pending: true };
+  }
+  if (calf) {
+    calf.camp = calf.camp || camp || null;
+    animals.push(calf);
+    await IDB.cacheAnimals(animals);
+  }
+  const newCamp = camp && !KuddeCamps.isKnown(camp) ? camp : null;
+  closeCalving();
+  renderAnimalList();
+  renderSummary();
+  if (newCamp && !pending) await KuddeCamps.load();
+  Kudde.toast(pending ? `Saved on this device - calf ${calfTag} will sync when online`
+    : `Calf ${calfTag} added to ${dam.tag}` + (newCamp ? " (new camp added to Settings)" : ""));
+  openAnimalDetail(dam.tag);
 }
 
 // ---------------------------------------------------------------------
@@ -845,6 +943,7 @@ function describeOutboxEntry(entry) {
     return `Move of ${n} animal${n === 1 ? "" : "s"} to ${p.location}`;
   }
   if (entry.kind === "photo") return `Photo of ${p.tag}`;
+  if (entry.kind === "calving") return `Calving of ${p.dam_tag} (calf ${p.calf && p.calf.tag})`;
   return "A saved change";
 }
 
@@ -901,6 +1000,8 @@ async function trySync() {
           await Kudde.api("/api/events", { method: "POST", body: entry.payload });
         } else if (entry.kind === "bulk_movement") {
           await Kudde.api("/api/events/movement/bulk", { method: "POST", body: entry.payload });
+        } else if (entry.kind === "calving") {
+          await Kudde.api("/api/calvings", { method: "POST", body: entry.payload });
         } else if (entry.kind === "photo") {
           await Kudde.apiUpload(
             `/api/animals/${encodeURIComponent(entry.payload.tag)}/photos`,
@@ -1003,8 +1104,15 @@ async function init() {
   document.getElementById("confirmMoveBtn").addEventListener("click", confirmMove);
 
   document.querySelectorAll("#animalDetailModal .action-btn[data-kind]").forEach((btn) => {
-    btn.addEventListener("click", () => openEventModal(btn.dataset.kind));
+    btn.addEventListener("click", () => {
+      if (btn.dataset.kind === "birth") openCalving();
+      else openEventModal(btn.dataset.kind);
+    });
   });
+  document.getElementById("cancelCalvingBtn").addEventListener("click", closeCalving);
+  document.getElementById("confirmCalvingBtn").addEventListener("click", () => { confirmCalving().catch(() => {}); });
+  document.getElementById("calfFemaleBtn").addEventListener("click", () => setCalfSex("female"));
+  document.getElementById("calfMaleBtn").addEventListener("click", () => setCalfSex("male"));
 
   document.getElementById("takePhotoBtn").addEventListener("click", () => {
     document.getElementById("photoInput").click();

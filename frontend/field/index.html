@@ -153,7 +153,9 @@
       <button class="action-btn" data-kind="weight"><i class="fa-solid fa-weight-scale event-icon-weight"></i>Weight</button>
       <button class="action-btn" data-kind="treatment"><i class="fa-solid fa-syringe event-icon-treatment"></i>Treatment</button>
       <button class="action-btn" data-kind="movement"><i class="fa-solid fa-arrows-turn-right event-icon-movement"></i>Move</button>
-      <button class="action-btn" data-kind="birth"><i class="fa-solid fa-baby event-icon-birth"></i>Birth</button>
+      <!-- On a cow this opens the calving screen (the birth event on the
+           cow AND the new calf, in one go); hidden on a male. -->
+      <button class="action-btn" id="calvedBtn" data-kind="birth"><i class="fa-solid fa-baby event-icon-birth"></i>Calved</button>
       <button class="action-btn" data-kind="sale"><i class="fa-solid fa-hand-holding-dollar event-icon-sale"></i>Sale</button>
       <button class="action-btn" data-kind="death"><i class="fa-solid fa-skull event-icon-death"></i>Death</button>
     </div>
@@ -244,6 +246,45 @@
         <button id="backMoveBtn" class="flex-1 rounded-lg py-3 bg-slate-100">Back</button>
         <button id="confirmMoveBtn" class="flex-1 kudde-btn-primary rounded-lg py-3 font-semibold">Move</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Calving modal: the cow calved, and here is the calf. One screen, one
+     record on the server (POST /api/calvings) or one outbox entry. -->
+<div id="calvingModal" class="fixed inset-0 bg-black/50 hidden p-4 z-50 overflow-y-auto">
+  <div class="bg-white rounded-xl p-5 w-full max-w-sm m-auto">
+    <div class="font-bold text-lg mb-1"><span id="calvingDam"></span> calved</div>
+    <div class="text-xs text-slate-500 mb-3">Records the calving on the cow and adds the calf, with her as the dam.</div>
+    <label class="text-xs text-slate-500">Date *</label>
+    <input id="calvingDate" type="date" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+    <label class="text-xs text-slate-500">Calf tag *</label>
+    <input id="calfTag" type="text" autocomplete="off" autocapitalize="characters" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+    <label class="text-xs text-slate-500">Calf sex *</label>
+    <div class="flex rounded-lg bg-slate-100 p-1 text-sm font-semibold mb-2" role="group" aria-label="Calf sex">
+      <button id="calfFemaleBtn" type="button" class="seg-btn flex-1">Heifer</button>
+      <button id="calfMaleBtn" type="button" class="seg-btn flex-1">Bull calf</button>
+    </div>
+    <div class="grid grid-cols-2 gap-2">
+      <div>
+        <label class="text-xs text-slate-500">Calf name</label>
+        <input id="calfName" type="text" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">Sire tag</label>
+        <input id="calfSireTag" type="text" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+      </div>
+    </div>
+    <label class="text-xs text-slate-500">Breed</label>
+    <input id="calfBreed" type="text" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+    <label class="text-xs text-slate-500">Camp</label>
+    <div id="calvingCampChips" class="chip-row"></div>
+    <input id="calvingCamp" type="text" placeholder="Camp name" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2" autocomplete="off">
+    <label class="text-xs text-slate-500">Note <span class="text-slate-400">(calving ease, pulled, up and sucking)</span></label>
+    <textarea id="calvingNote" rows="2" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2"></textarea>
+    <div class="flex gap-2 mt-3">
+      <button id="cancelCalvingBtn" class="flex-1 rounded-lg py-3 bg-slate-100">Cancel</button>
+      <button id="confirmCalvingBtn" class="flex-1 kudde-btn-primary rounded-lg py-3 font-semibold">Save</button>
     </div>
   </div>
 </div>
