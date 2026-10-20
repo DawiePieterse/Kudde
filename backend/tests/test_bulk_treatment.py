@@ -6,9 +6,12 @@ from tests.conftest import RECENTLY
 TODAY = date.today()
 
 
+from tests.conftest import add_animal
+
+
 def _herd(client, tags):
     for tag in tags:
-        assert client.post("/api/animals", json={"tag": tag, "sex": "female"}).status_code == 200
+        add_animal(client, tag)
 
 
 def test_a_group_treatment_lands_on_every_animal(client):

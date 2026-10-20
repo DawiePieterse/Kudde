@@ -1,13 +1,9 @@
 """Treatments: what was given, and the withdrawal period that follows."""
 from datetime import date, timedelta
 
-from tests.conftest import RECENTLY
+from tests.conftest import RECENTLY, add_animal as _add
 
 TODAY = date.today()
-
-
-def _add(client, tag):
-    assert client.post("/api/animals", json={"tag": tag, "sex": "female"}).status_code == 200
 
 
 def _treat(client, tag, on, **fields):

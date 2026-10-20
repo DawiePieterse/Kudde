@@ -48,9 +48,12 @@ def animal_class(animal: Animal, calved: bool, today: date = None) -> str:
     return f"{base} calf" if is_calf else base
 
 
-def calved_animal_ids(session: Session) -> Set[int]:
-    """The animals with a calving on record, by either sign of one."""
-    animals = session.exec(select(Animal)).all()
+def calved_animal_ids(session: Session, animals=None) -> Set[int]:
+    """The animals with a calving on record, by either sign of one. Pass
+    the Animal rows if the caller has already loaded them all (every
+    status: a dam may be dead or sold); otherwise they are loaded here."""
+    if animals is None:
+        animals = session.exec(select(Animal)).all()
     by_tag: Dict[str, Animal] = {a.tag.casefold(): a for a in animals}
     calved: Set[int] = set()
     for a in animals:

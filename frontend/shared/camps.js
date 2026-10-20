@@ -19,41 +19,62 @@ const KuddeCamps = {
   STORAGE_KEY: "kudde_camps",
   list: [],
 
-  _readCache() {
-    try {
-      const raw = localStorage.getItem(KuddeCamps.STORAGE_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (_) { return []; }
+  async load() {
+    const fresh = await Kudde.cachedList(KuddeCamps.STORAGE_KEY, "/api/camps");
+    KuddeCamps.set(fresh);
+    return KuddeCamps.list;
   },
 
-  // Fetches the live list when the server answers, else falls back to the
-  // cache. Never throws for a network failure: the caller is loading a
-  // screen and a missing camp list must not stop it.
-  async load() {
-    try {
-      const fresh = await Kudde.api("/api/camps");
-      KuddeCamps.list = fresh.map((c) => ({ id: c.id, name: c.name }));
-      try { localStorage.setItem(KuddeCamps.STORAGE_KEY, JSON.stringify(KuddeCamps.list)); } catch (_) { /* full or private */ }
-      Kudde.setOffline(false);
-    } catch (e) {
-      if (!Kudde.isNetworkError(e)) throw e;
-      Kudde.setOffline(true);
-      KuddeCamps.list = KuddeCamps._readCache();
-    }
-    return KuddeCamps.list;
+  // Takes a list already fetched (Admin's Settings loads every camp,
+  // archived too, and hands the active ones here) so the chips follow a
+  // rename or an archive without a second round trip.
+  set(list) {
+    KuddeCamps.list = list.filter((c) => !c.archived).map((c) => ({ id: c.id, name: c.name }));
+    try { localStorage.setItem(KuddeCamps.STORAGE_KEY, JSON.stringify(KuddeCamps.list)); } catch (_) { /* full or private */ }
   },
 
   names() { return KuddeCamps.list.map((c) => c.name); },
 
-  _same(a, b) {
-    return String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
-  },
+  // The comparison form of a camp name: whitespace collapsed, case
+  // ignored - the same rule as campnames.fold() on the server, so a camp
+  // the server would snap to is one the phone knows too.
+  key(name) { return String(name || "").trim().split(/\s+/).join(" ").toLowerCase(); },
+
+  _same(a, b) { return KuddeCamps.key(a) === KuddeCamps.key(b); },
 
   // True when `name` is already a camp the list knows, whatever its
   // capitals - the same rule the server applies when it snaps a typed
   // location to the spelling in Settings.
   isKnown(name) { return KuddeCamps.list.some((c) => KuddeCamps._same(c.name, name)); },
+
+  // The toast suffix after a save that may have added a camp through the
+  // Other chip: the server adds it to Settings on its own, and the admin
+  // needs to know to tidy it. Empty when the camp was known.
+  newCampNote(name) {
+    return name && !KuddeCamps.isKnown(name) ? " (new camp added to Settings)" : "";
+  },
+
+  // The Move camp picker's first step, the same in both apps: every camp
+  // with its count, empty ones greyed (nothing to move FROM), and the row
+  // with no location, the animals never placed anywhere, so they can be
+  // moved INTO a camp. `onPick(index)` gets the row tapped.
+  renderLocations(listEl, emptyEl, locations, onPick) {
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    emptyEl.classList.toggle("hidden", locations.length > 0);
+    listEl.innerHTML = locations.map((loc, i) => {
+      const n = loc.animals.length;
+      const label = loc.location === null ? "No camp yet" : loc.location;
+      return `
+      <button type="button" class="w-full text-left rounded-lg p-3 flex items-center justify-between move-location-btn ${n ? "bg-slate-50 hover:bg-slate-100" : "bg-slate-50 opacity-50"}"
+              data-index="${i}" ${n ? "" : "disabled"}>
+        <span class="font-semibold ${loc.location === null ? "italic" : ""}">${esc(label)}</span>
+        <span class="text-xs text-slate-500">${n ? `${n} animal${n === 1 ? "" : "s"}` : "empty"}</span>
+      </button>`;
+    }).join("");
+    listEl.querySelectorAll(".move-location-btn").forEach((btn) => {
+      btn.addEventListener("click", () => onPick(parseInt(btn.dataset.index, 10)));
+    });
+  },
 
   // Draws the chips into `container` and wires them to `input`, the text
   // box that actually carries the value (so every existing save path keeps

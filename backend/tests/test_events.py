@@ -1,5 +1,5 @@
 """Recording what happens to an animal, and what that does to its status."""
-from tests.conftest import LONG_AGO, RECENTLY
+from tests.conftest import LONG_AGO, RECENTLY, add_animal, move
 
 
 def test_event_is_recorded_against_the_tag_the_field_app_read(client):
@@ -178,10 +178,8 @@ def test_a_replay_does_not_re_apply_the_status_change(client):
 def _camp(client, tags, location, on=None):
     """Put each tag in the herd and place it in `location`."""
     for tag in tags:
-        client.post("/api/animals", json={"tag": tag, "sex": "female"})
-        client.post("/api/events", json={"tag": tag, "kind": "movement",
-                                         "event_date": (on or LONG_AGO).isoformat(),
-                                         "location": location})
+        add_animal(client, tag)
+    move(client, tags, location, on=on or LONG_AGO)
 
 
 def test_a_camp_moves_in_one_call(client):

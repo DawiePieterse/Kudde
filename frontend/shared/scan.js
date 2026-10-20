@@ -61,11 +61,15 @@ const KuddeScan = {
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     let busy = false;
+    let last = 0;
 
+    // Ten decodes a second is plenty for a tag held still; sixty would
+    // only warm the phone.
     const tick = async () => {
       if (!KuddeScan._stream) return;
-      if (!busy && video.readyState >= 2) {
+      if (!busy && video.readyState >= 2 && performance.now() - last >= 100) {
         busy = true;
+        last = performance.now();
         try {
           let text = null;
           if (detector) {

@@ -169,6 +169,71 @@ const Kudde = {
     return String(until) >= Kudde.localDateStr();
   },
 
+  // Whole days since a YYYY-MM-DD, or null when there is no date.
+  daysSince(dateStr) {
+    const d = Kudde._parseDate(dateStr);
+    if (!d) return null;
+    return Math.floor((Date.now() - d.getTime()) / 86400000);
+  },
+
+  // What to show under a kg box for `animal`, given what has been typed so
+  // far: the last weighing, the change since, and a nudge when the number
+  // is a long way off. One rule for both apps. Returns {text, warn}.
+  weightHint(animal, typed) {
+    if (!animal) return { text: "", warn: false };
+    if (animal.last_weight == null) return { text: "First weighing", warn: false };
+    const days = Kudde.daysSince(animal.last_weight_date);
+    let text = `Last ${Kudde.fmtKg(animal.last_weight)} on ${Kudde.fmtDate(animal.last_weight_date)}`
+      + (days === null ? "" : ` (${days} day${days === 1 ? "" : "s"} ago)`);
+    const value = parseFloat(typed);
+    if (!(value > 0)) return { text, warn: false };
+    const diff = value - animal.last_weight;
+    const pct = Math.abs(diff) / animal.last_weight;
+    const sign = diff >= 0 ? "+" : "-";
+    text += ` \u00b7 ${sign}${Math.abs(diff).toLocaleString(Kudde.LOCALE, { maximumFractionDigits: 1 })} kg`;
+    if (days > 0) text += ` (${sign}${(Math.abs(diff) / days).toLocaleString(Kudde.LOCALE, { maximumFractionDigits: 2 })} kg/day)`;
+    // Three tenths either way is beyond any gain or loss a season produces;
+    // 412 typed as 41, or the previous animal's weight left in the box, is
+    // not. A question, never a refusal: the number may be right.
+    if (pct > 0.3) text += ` \u00b7 check: ${Math.round(pct * 100)}% ${diff < 0 ? "lighter" : "heavier"} than last time`;
+    return { text, warn: pct > 0.3 };
+  },
+
+  showWeightHint(el, animal, typed) {
+    const { text, warn } = Kudde.weightHint(animal, typed);
+    el.textContent = text;
+    el.classList.toggle("hint-warn", warn);
+  },
+
+  // What the sheet before a sale has to say if the animal is still in
+  // withdrawal: the one thing that can cost the farm its buyer. A warning,
+  // not a refusal - the sale may be to another farm. Empty when clear.
+  saleWarning(animal) {
+    return animal && Kudde.inWithdrawal(animal.withdrawal_until)
+      ? `${animal.tag} is in withdrawal until ${Kudde.fmtDate(animal.withdrawal_until)} and should not be slaughtered before then.`
+      : "";
+  },
+
+  // A list fetched from `path` and kept in localStorage under `key`, so it
+  // is there with no signal: the camps and the products both work this
+  // way. Never throws for a network failure - the caller is loading a
+  // screen and a missing list must not stop it.
+  async cachedList(key, path) {
+    try {
+      const fresh = await Kudde.api(path);
+      try { localStorage.setItem(key, JSON.stringify(fresh)); } catch (_) { /* full or private */ }
+      Kudde.setOffline(false);
+      return fresh;
+    } catch (e) {
+      if (!Kudde.isNetworkError(e)) throw e;
+      Kudde.setOffline(true);
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key) || "[]");
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_) { return []; }
+    }
+  },
+
   // "Heifer calf" from "heifer calf": the server's class names are lower
   // case so they read inside a sentence; a row or a column wants a capital.
   classLabel(cls) {
@@ -195,12 +260,26 @@ const Kudde = {
   },
 
   // Tag order as a farmer reads it: B2 before B10, A20 before A100. Plain
-  // localeCompare sorts digit by digit, so B10 landed between B1 and B2 and
-  // a herd numbered past nine never read in order. The server sorts the
-  // same way (routers/animals.py tag_sort_key); both lists must agree or a
-  // row moves between the Field list and the Move camp picker.
+  // string order sorts digit by digit, so B10 landed between B1 and B2 and
+  // a herd numbered past nine never read in order. This is a literal port
+  // of backend/tags.py tag_sort_key (digit runs as numbers, letter runs
+  // ignoring case, a number before text at the same position) rather than
+  // localeCompare's numeric mode, because ICU and Python disagree on
+  // spaces, hyphens and accents, and a row that sorts differently on the
+  // phone and the server moves between the list and the Move picker.
+  tagKey(tag) {
+    return String(tag || "").split(/(\d+)/).filter(Boolean)
+      .map((part) => (/^\d+$/.test(part) ? [0, parseInt(part, 10)] : [1, part.toLowerCase()]));
+  },
+
   compareTags(a, b) {
-    return String(a || "").localeCompare(String(b || ""), Kudde.LOCALE, { numeric: true, sensitivity: "base" });
+    const ka = Kudde.tagKey(a);
+    const kb = Kudde.tagKey(b);
+    for (let i = 0; i < Math.min(ka.length, kb.length); i++) {
+      if (ka[i][0] !== kb[i][0]) return ka[i][0] - kb[i][0];
+      if (ka[i][1] !== kb[i][1]) return ka[i][1] < kb[i][1] ? -1 : 1;
+    }
+    return ka.length - kb.length;
   },
 
   // "Today" as a YYYY-MM-DD string in local time - what a <input type=date>

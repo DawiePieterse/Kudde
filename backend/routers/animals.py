@@ -6,15 +6,11 @@ from pydantic import field_validator
 from sqlmodel import Session, SQLModel, select
 
 from campnames import ensure_camp
-from classes import animal_class, calved_animal_ids
 from db import get_session
 from farmweather import stamp_weather, weather_for
+from herd import herd_context
 from models import Animal, AnimalSex, AnimalStatus, Event, EventKind
-# Re-exported: these lived here first and other modules import them by this
-# path. They moved to tags.py so routers/events.py no longer has to import
-# this router to get at them, which let this router import from events in
-# turn without the two chasing each other in a circle.
-from tags import normalise_tag, tag_sort_key  # noqa: F401
+from tags import normalise_tag
 
 router = APIRouter(prefix="/api/animals", tags=["animals"])
 
@@ -75,64 +71,21 @@ class AnimalUpdate(SQLModel):
         return normalise_tag(value)
 
 
-def _last_weights(session: Session) -> dict:
-    """{animal_id: (value, event_date)} of each animal's most recent
-    weighing. One query for the herd, newest first, keeping the first row
-    seen per animal - not a query per animal."""
-    rows = session.exec(
-        select(Event.animal_id, Event.value, Event.event_date)
-        .where(Event.kind == EventKind.weight)
-        .order_by(Event.event_date.desc(), Event.id.desc())
-    ).all()
-    latest: dict = {}
-    for animal_id, value, on in rows:
-        latest.setdefault(animal_id, (value, on))
-    return latest
-
-
-def _with_context(animal: Animal, last_weights: dict, locations: dict, withdrawal: dict,
-                  calved: set) -> dict:
-    """An animal as the apps list it: the record, plus where it is and when
-    it was last weighed.
-
-    Carried on the list rather than fetched per animal because the Field
-    app caches this list for offline use and that is the only copy it has
-    out at the crush: the last weight is what lets a 412 typed as 41 be
-    noticed before it is saved, and the camp is what the farmer wants to
-    see while walking, more than the breed that never changes.
-    """
-    value, on = last_weights.get(animal.id, (None, None))
-    return {**animal.model_dump(), "camp": locations.get(animal.id) or None,
-            "last_weight": value, "last_weight_date": on,
-            # The last day a treatment's withdrawal still runs, or None: what
-            # the list flags and what a Sale is warned about.
-            "withdrawal_until": withdrawal.get(animal.id),
-            # Cow, heifer, bull, steer or a calf - see classes.py.
-            "class": animal_class(animal, animal.id in calved)}
-
-
 @router.get("")
 def list_animals(q: Optional[str] = None, status: Optional[AnimalStatus] = None,
                   session: Session = Depends(get_session)):
     """q matches the start of a tag or anywhere in a name - the two things a
-    farmer actually has in hand when they're looking for an animal."""
-    # Imported here, not at the top: events imports this module's neighbours
-    # and the locations derivation lives with the events it reads.
-    from routers.events import _current_locations, withdrawal_until
-
-    statement = select(Animal)
+    farmer actually has in hand when they're looking for an animal. Each
+    animal comes with its camp, last weight, withdrawal and class (see
+    herd.HerdContext.describe). Already in tag order (herd_context)."""
+    ctx = herd_context(session)
+    animals = ctx.animals
     if status is not None:
-        statement = statement.where(Animal.status == status)
-    # Sorted here rather than ORDER BY: see tag_sort_key.
-    animals = sorted(session.exec(statement).all(), key=lambda a: tag_sort_key(a.tag))
+        animals = [a for a in animals if a.status is status]
     if q:
         needle = q.strip().lower()
         animals = [a for a in animals if a.tag.lower().startswith(needle) or needle in a.name.lower()]
-    last_weights = _last_weights(session)
-    locations = _current_locations(session)
-    withdrawal = withdrawal_until(session)
-    calved = calved_animal_ids(session)
-    return [_with_context(a, last_weights, locations, withdrawal, calved) for a in animals]
+    return [ctx.describe(a) for a in animals]
 
 
 @router.get("/{tag}")
@@ -143,24 +96,37 @@ def get_animal(tag: str, session: Session = Depends(get_session)):
     return animal
 
 
+def new_animal(session: Session, fields: AnimalCreate, *, placed_kind: EventKind,
+               on: date, note: str, client_uuid: Optional[str] = None) -> Animal:
+    """Adds an animal to the session (not committed) and, if `fields.camp`
+    names one, the event that places it there: a movement dated today for
+    an animal entered by hand, a birth event on its birth date for a calf.
+    Shared by create_animal and the calving, so the rules on a new animal
+    (unique tag, the camp snapped to Settings) live once. Refuses before
+    anything is added, so a caller can commit nothing on a 409."""
+    if session.exec(select(Animal).where(Animal.tag == fields.tag)).first() is not None:
+        raise HTTPException(409, f"Tag {fields.tag} is already in use")
+    animal = Animal(**fields.model_dump(exclude={"camp"}))
+    session.add(animal)
+    camp_name = (fields.camp or "").strip()
+    if camp_name:
+        # Through ensure_camp so a camp typed on a phone snaps to the
+        # spelling in Settings, or is added there if it is new.
+        session.flush()  # animal.id, for the event's foreign key
+        placed = Event(animal_id=animal.id, kind=placed_kind, event_date=on,
+                       location=ensure_camp(session, camp_name).name, note=note,
+                       client_uuid=client_uuid)
+        stamp_weather(placed, weather_for(session, on))
+        session.add(placed)
+    return animal
+
+
 @router.post("")
 def create_animal(payload: AnimalCreate, session: Session = Depends(get_session)):
-    if session.exec(select(Animal).where(Animal.tag == payload.tag)).first() is not None:
-        raise HTTPException(409, f"Tag {payload.tag} is already in use")
-    animal = Animal(**payload.model_dump(exclude={"camp"}))
-    session.add(animal)
-    camp_name = (payload.camp or "").strip()
-    if camp_name:
-        # Dated today, not at the birth date: this records where the animal
-        # is as it is entered, not a claim about where it was born. Through
-        # ensure_camp so a camp typed on a phone snaps to the spelling in
-        # Settings, or is added there if it is new.
-        session.flush()  # animal.id, for the event's foreign key
-        placed = Event(animal_id=animal.id, kind=EventKind.movement, event_date=date.today(),
-                       location=ensure_camp(session, camp_name).name,
-                       note="Entered into Kudde")
-        stamp_weather(placed, weather_for(session, placed.event_date))
-        session.add(placed)
+    # Placed today, not at the birth date: this records where the animal is
+    # as it is entered, not a claim about where it was born.
+    animal = new_animal(session, payload, placed_kind=EventKind.movement, on=date.today(),
+                        note="Entered into Kudde")
     session.commit()
     session.refresh(animal)
     return animal
