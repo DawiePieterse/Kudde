@@ -80,6 +80,16 @@ class Event(SQLModel, table=True):
     value: Optional[float] = None  # weight in kg for a "weight" event; unused by other kinds
     note: str = ""
     location: str = ""  # camp/paddock name - mainly for "movement" events
+    # A treatment's own fields. What was given and how much, and how many
+    # days the animal may not be sold or slaughtered afterwards - the one
+    # compliance question a small farm actually gets asked. All optional:
+    # a treatment recorded as a note alone is still a treatment, and every
+    # treatment from before these columns existed has nothing here. The
+    # withdrawal is stored as the days given on the label, not as an end
+    # date, so a corrected event date keeps it right.
+    product: str = ""
+    dose: str = ""
+    withdrawal_days: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     # Filled in automatically from Open-Meteo for the farm's position on
     # event_date (see weather.py) - null if the farm has no position set or

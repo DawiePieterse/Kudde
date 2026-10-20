@@ -151,6 +151,24 @@ const Kudde = {
     movement: "Movement", death: "Death", sale: "Sale",
   },
 
+  // "Ivermectin 5 ml, 28 days withdrawal" - what a treatment event was,
+  // for a history line. Empty for a treatment that is only a note.
+  treatmentSummary(e) {
+    if (!e || e.kind !== "treatment") return "";
+    const parts = [];
+    if (e.product) parts.push(e.dose ? `${e.product} ${e.dose}` : e.product);
+    if (e.withdrawal_days != null) parts.push(`${e.withdrawal_days} day${e.withdrawal_days === 1 ? "" : "s"} withdrawal`);
+    return parts.join(", ");
+  },
+
+  // True while `until` (a YYYY-MM-DD) is today or later: the animal may
+  // not be sold or slaughtered yet. Compared as calendar dates in local
+  // time, so the day the withdrawal ends still counts.
+  inWithdrawal(until) {
+    if (!until) return false;
+    return String(until) >= Kudde.localDateStr();
+  },
+
   eventLabel(kind) {
     const key = String(kind || "");
     return Kudde.EVENT_LABEL[key] || (key ? key.charAt(0).toUpperCase() + key.slice(1) : "");

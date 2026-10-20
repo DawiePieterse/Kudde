@@ -129,7 +129,7 @@ the animal's status following it.
 |---|---|---|
 | **Birth** | The animal was born | - |
 | **Weight** | A weighing | Value, in kg |
-| **Treatment** | A vet treatment, dosing, etc. | - |
+| **Treatment** | A vet treatment, dosing, etc. | Product, dose, withdrawal (days) - all optional |
 | **Movement** | A move between camps/paddocks | Location (the camp name) |
 | **Sale** | The animal was sold | - |
 | **Death** | The animal died | - |
@@ -138,6 +138,28 @@ Every event also carries a date and a free-text note, whatever the kind.
 `value` (kg) only means anything on a weight event, and `location` only
 means anything on a movement event - the other kinds simply leave those
 blank.
+
+### Treatments and withdrawal
+
+A treatment can record **what was given** (the product), **how much** (the
+dose, free text - "5 ml", "2 tablets") and the **withdrawal period** in
+days, off the label: how long the animal may not be sold for slaughter
+afterwards. All three are optional; a treatment that is only a note is
+still a treatment, and every treatment recorded before these fields
+existed simply has none.
+
+The products used before are offered as chips on every treatment form,
+most recently used first, each remembering the dose and withdrawal it was
+last given with - so the next animal dosed from the same bottle is one
+tap. There is nothing to set up: the list is the treatments on file.
+
+While a withdrawal runs, the animal is **in withdrawal**: the Field list
+and the Admin herd table show a red *Withdrawal to <date>* pill under it,
+the Admin dashboard lists everyone in withdrawal with the day each is
+clear, and recording a **Sale** warns first, naming the date. A warning,
+not a refusal - the sale may be to another farm. Overlapping treatments
+end when the longest one does. The day the period ends still counts as
+in withdrawal.
 
 **A weight event must carry a weight.** Both apps and the server refuse a
 weighing with the kg box left empty, or filled in with something that
@@ -161,13 +183,13 @@ simply carries no weather. **A weather lookup never blocks a record from
 being saved.** Events recorded before you set the position keep no
 weather; it is not backfilled.
 
-The Field app's quick-action buttons cover weight, treatment, movement,
-sale, and death - the events you'd realistically capture while standing
-next to the animal. There's no field quick-action for **birth**, since a
-newly recorded animal's birth date is normally set directly on the **Add
-animal** form instead. A birth event is there for the rarer case where
-you want to log the birth itself as a dated event with its own note - it
-is available from **Admin - Herd**'s event form.
+The Field app's quick-action buttons cover all six, the events you'd
+realistically capture while standing next to the animal. A newly recorded
+animal's birth date is set on the **Add animal** form, not with a birth
+event; the **Birth** button is for recording a *calving* against the cow -
+the camp it happened in, and in the note what matters afterwards: calving
+ease, whether it had to be pulled, whether cow and calf are up and
+sucking. Then add the calf with **Add animal**, dam tag filled in.
 
 ### Camps, and moving a whole one
 
@@ -642,14 +664,18 @@ is set, so a sold animal's tag still finds it.
 
 ### Animal detail and recording an event
 
-Tapping an animal opens its tag, name/breed/sex, status pill, and five
+Tapping an animal opens its tag, name/breed/sex, status pill, and six
 quick-action buttons:
 
-**Weight · Treatment · Move · Sale · Death**
+**Weight · Treatment · Move · Birth · Sale · Death**
 
 Each opens a small form: a date (defaults to today), a value in kg
 (weight only), the camp as a row of chips (movement and birth only - see
 [Camps](#camps-and-moving-a-whole-one)), and a free-text note.
+
+A **Treatment** has product chips (the bottles used before), and boxes for
+product, dose and withdrawal days - see [Treatments and
+withdrawal](#treatments-and-withdrawal) in chapter 1.
 
 Under the kg box, the **last weighing** is shown - how much, when, and
 how long ago - and as you type, the change since and the gain per day.
@@ -677,9 +703,10 @@ A weighing day is forty head through a crush, and the one-animal flow
 above is six taps a head. **Weigh session** and **Treat session**, on the
 main screen, are the crush-side way of working:
 
-1. Pick the date (today by default). For a treat session, say what the
-   treatment is - *Ivermectin 5 ml*, say - once; it is recorded on every
-   animal in the session.
+1. Pick the date (today by default). For a treat session, say what is
+   being given once - tap the product chip, or type the product, dose and
+   withdrawal days - and it is recorded on every animal in the session.
+   An animal already in withdrawal says so under its tag as it comes up.
 2. **Start**. The screen is now a tag box and (for weighing) a kg box.
 3. Type the tag - it completes from the herd after a character or two -
    and the animal's name and camp appear under it, with its last weighing
@@ -797,6 +824,12 @@ couldn't verify the newest release - nothing has been installed, and
 `UPDATING.md` is the place to start. Neither appears until
 `setup_update_check.bat` has been run once on the server; see
 [Updating](#updating-to-a-newer-version-of-the-code) in chapter 2.
+
+### In withdrawal
+
+Shown only when at least one alive animal is inside a treatment's
+withdrawal period: each with the first day it may be sold, soonest first.
+See [Treatments and withdrawal](#treatments-and-withdrawal).
 
 ### Herd counts
 
@@ -1054,6 +1087,9 @@ free some space in `data\backups\` and start the server again. See
 | `event_date` | date | Required |
 | `value` | number | Weight in kg - only meaningful on a `weight` event |
 | `note` | text | Optional, free text, any kind |
+| `product` | text | Treatment only: what was given. Empty on other kinds, and on treatments recorded before this field existed |
+| `dose` | text | Treatment only: how much, free text |
+| `withdrawal_days` | integer | Treatment only: days before the animal may be sold for slaughter. Null when none was recorded. The animal is in withdrawal through `event_date` + this many days |
 | `location` | text | The camp name - only meaningful on a `movement` or `birth` event, where it is snapped to the spelling in the `Camp` table (and added there if new). Stored as text, not as a link to the camp: an animal's current camp is the most recent `movement` or `birth` event that named one, and renaming a camp leaves this as it was recorded |
 | `weather_temp_max` | number | °C at the farm on `event_date`, filled in automatically. Null if the farm has no position set, or the lookup failed |
 | `weather_temp_min` | number | °C, same rule |

@@ -22,6 +22,7 @@
 <script src="../shared/api.js"></script>
 <script src="../shared/ptr.js"></script>
 <script src="../shared/camps.js"></script>
+<script src="../shared/products.js"></script>
 <script src="../shared/vendor/leaflet/leaflet.js"></script>
 </head>
 <body class="bg-slate-100 min-h-screen">
@@ -77,6 +78,17 @@
       </div>
       <div id="needsWeighingList" class="space-y-1 text-sm"></div>
       <div id="needsWeighingEmpty" class="hidden text-slate-400 text-sm">Nothing outstanding</div>
+    </div>
+
+    <!-- The animals that must not go to the sale this week. Hidden when
+         nobody is in withdrawal: an empty red card every morning would
+         soon be ignored. -->
+    <div id="withdrawalCard" class="bg-white rounded-xl p-3 shadow hidden">
+      <div class="text-sm font-semibold text-slate-500 mb-2">
+        <i class="fa-solid fa-ban text-red-600"></i>
+        In withdrawal <span class="text-slate-400 font-normal">(not to be sold or slaughtered yet)</span>
+      </div>
+      <div id="withdrawalList" class="space-y-1 text-sm"></div>
     </div>
 
     <div class="bg-white rounded-xl p-3 shadow">
@@ -307,6 +319,15 @@
           <label class="text-xs text-slate-500">Weight (kg)</label>
           <input id="newEventValue" type="number" step="0.1" class="w-full border border-slate-300 rounded-lg p-2">
           <div id="newEventValueHint" class="text-xs text-slate-500 min-h-4"></div>
+        </div>
+        <div id="newEventTreatmentRows" class="col-span-2 hidden">
+          <label class="text-xs text-slate-500">Product</label>
+          <div id="newEventProductChips" class="chip-row"></div>
+          <div class="grid grid-cols-3 gap-2">
+            <input id="newEventProduct" type="text" placeholder="Product" class="border border-slate-300 rounded-lg p-2">
+            <input id="newEventDose" type="text" placeholder="Dose" class="border border-slate-300 rounded-lg p-2">
+            <input id="newEventWithdrawal" type="number" min="0" step="1" placeholder="Withdrawal days" class="border border-slate-300 rounded-lg p-2">
+          </div>
         </div>
         <div id="newEventLocationRow" class="col-span-2 hidden">
           <label class="text-xs text-slate-500">Camp</label>

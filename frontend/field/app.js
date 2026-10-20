@@ -6,7 +6,7 @@
 
 const EVENT_FIELD_CONFIG = {
   weight: { title: "Record weight", showValue: true, valueLabel: "Weight (kg)", showLocation: false },
-  treatment: { title: "Record treatment", showValue: false, showLocation: false },
+  treatment: { title: "Record treatment", showValue: false, showLocation: false, showTreatment: true },
   movement: { title: "Record movement", showValue: false, showLocation: true },
   // Birth carries a location (which camp it was born in) and leans on the
   // note for what actually matters afterwards - calving ease, whether it
@@ -113,7 +113,9 @@ function rowDetail(a) {
     weighed = `${Kudde.fmtKg(a.last_weight)}${days === null ? "" : ` ${days}d ago`}`;
   }
   const overdue = needsWeighing(a) ? ` <i class="fa-solid fa-triangle-exclamation text-amber-500"></i>` : "";
-  return `${camp} &middot; ${weighed}${overdue}`;
+  const withdrawal = Kudde.inWithdrawal(a.withdrawal_until)
+    ? `<div class="mt-0.5"><span class="withdrawal-pill text-xs font-semibold px-2 py-0.5 rounded-full">Withdrawal to ${Kudde.fmtDate(a.withdrawal_until)}</span></div>` : "";
+  return `${camp} &middot; ${weighed}${overdue}${withdrawal}`;
 }
 
 function renderSummary() {
@@ -164,8 +166,10 @@ function eventIcon(kind) {
 // ---------------------------------------------------------------------
 
 async function loadAnimals() {
-  // The camp list rides along with the herd: same moment, same fallback.
+  // The camp and product lists ride along with the herd: same moment, same
+  // fallback.
   await KuddeCamps.load();
+  await KuddeProducts.load();
   try {
     animals = await Kudde.api("/api/animals");
     Kudde.setOffline(false);
@@ -247,7 +251,9 @@ async function openAnimalDetail(tag) {
 
   document.getElementById("detailTag").textContent = animal.tag;
   document.getElementById("detailSub").textContent =
-    [animal.name, animal.breed, animal.sex === "male" ? "Male" : "Female"].filter(Boolean).join(" · ");
+    [animal.name, animal.breed, animal.sex === "male" ? "Male" : "Female",
+     Kudde.inWithdrawal(animal.withdrawal_until) ? `Withdrawal to ${Kudde.fmtDate(animal.withdrawal_until)}` : null]
+      .filter(Boolean).join(" · ");
   const pill = document.getElementById("detailStatusPill");
   pill.textContent = STATUS_LABEL[animal.status] || animal.status;
   pill.className = `text-xs font-semibold px-2 py-1 rounded-full status-pill-${animal.status}`;
@@ -268,7 +274,7 @@ async function openAnimalDetail(tag) {
             <i class="fa-solid ${eventIcon(e.kind)} event-icon-${e.kind} w-4"></i>
             <div class="flex-1">
               <span class="font-medium">${escapeHtml(Kudde.eventLabel(e.kind))}</span>
-              ${e.value != null ? ` - ${Kudde.fmtKg(e.value)}` : ""}${e.location ? ` - ${escapeHtml(e.location)}` : ""}
+              ${e.value != null ? ` - ${Kudde.fmtKg(e.value)}` : ""}${e.location ? ` - ${escapeHtml(e.location)}` : ""}${Kudde.treatmentSummary(e) ? ` - ${escapeHtml(Kudde.treatmentSummary(e))}` : ""}
               ${e.note ? `<div class="text-xs text-slate-500">${escapeHtml(e.note)}</div>` : ""}
             </div>
             <div class="text-xs text-slate-400">${Kudde.fmtDate(e.event_date)}</div>
@@ -375,6 +381,13 @@ function openEventModal(kind) {
     document.getElementById("eventValueLabel").textContent = cfg.valueLabel;
     showWeightHint(document.getElementById("eventValueHint"), animals.find((a) => a.tag === activeTag), "");
   }
+  document.getElementById("eventTreatmentRows").classList.toggle("hidden", !cfg.showTreatment);
+  if (cfg.showTreatment) {
+    for (const id of ["eventProduct", "eventDose", "eventWithdrawal"]) document.getElementById(id).value = "";
+    KuddeProducts.render(document.getElementById("eventProductChips"), {
+      product: document.getElementById("eventProduct"), dose: document.getElementById("eventDose"),
+      withdrawal: document.getElementById("eventWithdrawal") });
+  }
   document.getElementById("eventLocationRow").classList.toggle("hidden", !cfg.showLocation);
   if (cfg.showLocation) {
     KuddeCamps.render(document.getElementById("eventLocationChips"), document.getElementById("eventLocation"));
@@ -395,6 +408,23 @@ const STATUS_ON_EVENT = { death: "dead", sale: "sold" };
 // and brings the cached animal into line with it. Shared by the event
 // modal and the sessions, so there is one place that knows the rules.
 // Returns {pending} or null if the server refused it (already toasted).
+// event_date plus the withdrawal, as YYYY-MM-DD - the same sum the server
+// makes, done here so the list flags the animal before the next sync.
+function withdrawalEnd(eventDate, days) {
+  const d = Kudde._parseDate(eventDate);
+  d.setDate(d.getDate() + days);
+  return Kudde.localDateStr(d);
+}
+
+// What the confirm() before a sale has to say if the animal is still in
+// withdrawal: the one thing on this screen that can cost the farm its
+// buyer. A warning, not a refusal - the sale may be to another farm.
+function saleWarning(animal) {
+  return animal && Kudde.inWithdrawal(animal.withdrawal_until)
+    ? `\n\nWARNING: ${animal.tag} is in withdrawal until ${Kudde.fmtDate(animal.withdrawal_until)} and should not be slaughtered before then.`
+    : "";
+}
+
 async function saveEvent(fields) {
   const payload = {
     ...fields,
@@ -433,9 +463,28 @@ async function saveEvent(fields) {
     if ((payload.kind === "movement" || payload.kind === "birth") && payload.location) {
       animal.camp = payload.location;
     }
+    if (payload.kind === "treatment" && payload.withdrawal_days != null) {
+      const until = withdrawalEnd(payload.event_date, payload.withdrawal_days);
+      if (!animal.withdrawal_until || until > animal.withdrawal_until) animal.withdrawal_until = until;
+    }
     await IDB.cacheAnimals(animals);
   }
+  if (payload.kind === "treatment") {
+    KuddeProducts.remember({ product: payload.product, dose: payload.dose, withdrawal_days: payload.withdrawal_days });
+  }
   return { pending };
+}
+
+// The three treatment boxes as the server wants them. A blank withdrawal
+// is null (none recorded), not zero - zero means "may be sold today".
+function treatmentFields(productId, doseId, withdrawalId) {
+  const raw = document.getElementById(withdrawalId).value.trim();
+  const days = /^\d+$/.test(raw) ? parseInt(raw, 10) : null;
+  return {
+    product: document.getElementById(productId).value.trim(),
+    dose: document.getElementById(doseId).value.trim(),
+    withdrawal_days: days,
+  };
 }
 
 async function confirmEvent() {
@@ -450,7 +499,8 @@ async function confirmEvent() {
     const what = activeEventKind === "death"
       ? `Record ${activeTag} as dead`
       : `Record ${activeTag} as sold`;
-    if (!confirm(`${what}? It will be marked ${STATUS_LABEL[STATUS_ON_EVENT[activeEventKind]]} and leave the live herd.`)) return;
+    const warning = activeEventKind === "sale" ? saleWarning(animals.find((a) => a.tag === activeTag)) : "";
+    if (!confirm(`${what}? It will be marked ${STATUS_LABEL[STATUS_ON_EVENT[activeEventKind]]} and leave the live herd.${warning}`)) return;
   }
 
   const value = EVENT_FIELD_CONFIG[activeEventKind].showValue
@@ -472,7 +522,13 @@ async function confirmEvent() {
     value,
     location: document.getElementById("eventLocation").value.trim(),
     note: document.getElementById("eventNote").value.trim(),
+    ...treatmentFields("eventProduct", "eventDose", "eventWithdrawal"),
   };
+  if (activeEventKind === "treatment" && payload.withdrawal_days === null
+      && document.getElementById("eventWithdrawal").value.trim() !== "") {
+    Kudde.toast("Withdrawal must be a whole number of days");
+    return;
+  }
 
   const result = await saveEvent(payload);
   if (!result) return;
@@ -629,11 +685,16 @@ async function confirmMove() {
 let session = null;   // {kind, date, note, log: [{tag, value, pending}]} while one is open
 
 function openSessionSetup(kind) {
-  session = { kind, date: Kudde.localDateStr(), note: "", log: [] };
+  session = { kind, date: Kudde.localDateStr(), note: "", treatment: null, log: [] };
   document.getElementById("sessionSetupTitle").textContent = kind === "weight" ? "Weigh session" : "Treat session";
   document.getElementById("sessionDate").value = session.date;
-  document.getElementById("sessionNote").value = "";
-  document.getElementById("sessionNoteRow").classList.toggle("hidden", kind !== "treatment");
+  for (const id of ["sessionNote", "sessionProduct", "sessionDose", "sessionWithdrawal"]) document.getElementById(id).value = "";
+  document.getElementById("sessionTreatmentRows").classList.toggle("hidden", kind !== "treatment");
+  if (kind === "treatment") {
+    KuddeProducts.render(document.getElementById("sessionProductChips"), {
+      product: document.getElementById("sessionProduct"), dose: document.getElementById("sessionDose"),
+      withdrawal: document.getElementById("sessionWithdrawal") });
+  }
   document.getElementById("sessionSetupView").classList.remove("hidden");
   document.getElementById("sessionCaptureView").classList.add("hidden");
   document.getElementById("sessionModal").classList.remove("hidden");
@@ -645,9 +706,16 @@ function startSession() {
   if (!date) { Kudde.toast("Date is required"); return; }
   session.date = date;
   session.note = document.getElementById("sessionNote").value.trim();
-  if (session.kind === "treatment" && !session.note) { Kudde.toast("Say what the treatment is"); return; }
+  if (session.kind === "treatment") {
+    session.treatment = treatmentFields("sessionProduct", "sessionDose", "sessionWithdrawal");
+    if (!session.treatment.product) { Kudde.toast("Say what the product is"); return; }
+    if (session.treatment.withdrawal_days === null && document.getElementById("sessionWithdrawal").value.trim() !== "") {
+      Kudde.toast("Withdrawal must be a whole number of days"); return;
+    }
+  }
 
-  document.getElementById("sessionTitle").textContent = session.kind === "weight" ? "Weighing" : `Treating: ${session.note}`;
+  document.getElementById("sessionTitle").textContent = session.kind === "weight" ? "Weighing"
+    : `Treating: ${Kudde.treatmentSummary({ kind: "treatment", ...session.treatment })}`;
   document.getElementById("sessionValueRow").classList.toggle("hidden", session.kind !== "weight");
   document.getElementById("sessionSaveBtn").textContent = session.kind === "weight" ? "Save and next" : "Record and next";
   // Every alive tag, so the tag box completes after a character or two.
@@ -691,7 +759,8 @@ function syncSessionEntry() {
   if (!animal) {
     who.textContent = document.getElementById("sessionTag").value.trim() ? "No animal with that tag" : "";
   } else {
-    who.textContent = [animal.name, animal.camp, animal.status !== "alive" ? STATUS_LABEL[animal.status] : null]
+    who.textContent = [animal.name, animal.camp, animal.status !== "alive" ? STATUS_LABEL[animal.status] : null,
+                       Kudde.inWithdrawal(animal.withdrawal_until) ? `in withdrawal to ${Kudde.fmtDate(animal.withdrawal_until)}` : null]
       .filter(Boolean).join(" \u00b7 ");
   }
   if (session.kind === "weight") {
@@ -714,7 +783,7 @@ async function saveSessionEntry() {
 
   const result = await saveEvent({
     tag: animal.tag, kind: session.kind, event_date: session.date,
-    value, location: "", note: session.note,
+    value, location: "", note: session.note, ...(session.treatment || {}),
   });
   if (!result) return;
   session.log.unshift({ tag: animal.tag, value, pending: result.pending });

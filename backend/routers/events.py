@@ -1,8 +1,8 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from sqlmodel import Session, SQLModel, select
 
 from campnames import ensure_camp, fold
@@ -63,9 +63,32 @@ class EventCreate(SQLModel):
     value: Optional[float] = None
     note: str = ""
     location: str = ""
+    # Treatment only (see models.Event). Sent empty by the other kinds and
+    # by any outbox entry captured before these existed.
+    product: str = ""
+    dose: str = ""
+    withdrawal_days: Optional[int] = None
     # The id the capturing device gave this event. Optional: the admin app
     # has no outbox and sends none. See create_event().
     client_uuid: Optional[str] = None
+
+    @field_validator("withdrawal_days")
+    @classmethod
+    def _withdrawal_is_days(cls, value: Optional[int]) -> Optional[int]:
+        if value is not None and value < 0:
+            raise ValueError("withdrawal days cannot be negative")
+        return value
+
+    @model_validator(mode="after")
+    def _treatment_fields_belong_to_treatments(self) -> "EventCreate":
+        """Dropped, not refused, on any other kind: a form that carried a
+        stale product across a kind change should not fail the save."""
+        if self.kind is not EventKind.treatment:
+            self.product, self.dose, self.withdrawal_days = "", "", None
+        else:
+            self.product = " ".join(self.product.split())
+            self.dose = " ".join(self.dose.split())
+        return self
 
     @model_validator(mode="after")
     def _weight_events_carry_a_weight(self) -> "EventCreate":
@@ -141,6 +164,8 @@ def create_event(payload: EventCreate, session: Session = Depends(get_session)):
     event = Event(animal_id=animal.id, kind=payload.kind, event_date=payload.event_date,
                    value=payload.value, note=payload.note,
                    location=_camp_location(session, payload.kind, payload.location),
+                   product=payload.product, dose=payload.dose,
+                   withdrawal_days=payload.withdrawal_days,
                    client_uuid=payload.client_uuid)
 
     # After the client_uuid check above, never before it: a replay of an
@@ -232,6 +257,55 @@ def create_bulk_movement(payload: BulkMovementCreate, session: Session = Depends
     for event in events:
         session.refresh(event)
     return events
+
+
+def withdrawal_until(session: Session) -> dict:
+    """{animal_id: date} of the latest day each animal is still inside a
+    treatment's withdrawal period, for those that are. The longest of any
+    overlapping treatments wins: an animal dosed twice is clear when the
+    later-ending one is."""
+    today = date.today()
+    rows = session.exec(
+        select(Event.animal_id, Event.event_date, Event.withdrawal_days)
+        .where(Event.kind == EventKind.treatment)
+        .where(Event.withdrawal_days.is_not(None))
+    ).all()
+    until: dict = {}
+    for animal_id, on, days in rows:
+        end = on + timedelta(days=days)
+        if end >= today and end > until.get(animal_id, date.min):
+            until[animal_id] = end
+    return until
+
+
+# How many distinct products the pickers offer. The farm's medicine cupboard
+# is a dozen bottles; the list is there to save typing, not to be searched.
+_RECENT_PRODUCTS = 20
+
+
+@router.get("/products")
+def list_products(session: Session = Depends(get_session)):
+    """The products given before, most recently used first, each with the
+    dose and withdrawal it was last recorded with - so the next treatment
+    with the same bottle is one tap, and a withdrawal typed once is typed
+    once. Nothing to set up: the list is the treatments already on file."""
+    rows = session.exec(
+        select(Event.product, Event.dose, Event.withdrawal_days)
+        .where(Event.kind == EventKind.treatment)
+        .where(Event.product != "")
+        .order_by(Event.event_date.desc(), Event.id.desc())
+    ).all()
+    seen = set()
+    products = []
+    for product, dose, days in rows:
+        key = product.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        products.append({"product": product, "dose": dose, "withdrawal_days": days})
+        if len(products) >= _RECENT_PRODUCTS:
+            break
+    return products
 
 
 @router.get("/locations")

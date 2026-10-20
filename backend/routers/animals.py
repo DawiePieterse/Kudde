@@ -87,7 +87,7 @@ def _last_weights(session: Session) -> dict:
     return latest
 
 
-def _with_context(animal: Animal, last_weights: dict, locations: dict) -> dict:
+def _with_context(animal: Animal, last_weights: dict, locations: dict, withdrawal: dict) -> dict:
     """An animal as the apps list it: the record, plus where it is and when
     it was last weighed.
 
@@ -99,7 +99,10 @@ def _with_context(animal: Animal, last_weights: dict, locations: dict) -> dict:
     """
     value, on = last_weights.get(animal.id, (None, None))
     return {**animal.model_dump(), "camp": locations.get(animal.id) or None,
-            "last_weight": value, "last_weight_date": on}
+            "last_weight": value, "last_weight_date": on,
+            # The last day a treatment's withdrawal still runs, or None: what
+            # the list flags and what a Sale is warned about.
+            "withdrawal_until": withdrawal.get(animal.id)}
 
 
 @router.get("")
@@ -109,7 +112,7 @@ def list_animals(q: Optional[str] = None, status: Optional[AnimalStatus] = None,
     farmer actually has in hand when they're looking for an animal."""
     # Imported here, not at the top: events imports this module's neighbours
     # and the locations derivation lives with the events it reads.
-    from routers.events import _current_locations
+    from routers.events import _current_locations, withdrawal_until
 
     statement = select(Animal)
     if status is not None:
@@ -121,7 +124,8 @@ def list_animals(q: Optional[str] = None, status: Optional[AnimalStatus] = None,
         animals = [a for a in animals if a.tag.lower().startswith(needle) or needle in a.name.lower()]
     last_weights = _last_weights(session)
     locations = _current_locations(session)
-    return [_with_context(a, last_weights, locations) for a in animals]
+    withdrawal = withdrawal_until(session)
+    return [_with_context(a, last_weights, locations, withdrawal) for a in animals]
 
 
 @router.get("/{tag}")

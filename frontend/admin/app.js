@@ -88,6 +88,15 @@ function renderDashboard() {
       <button class="text-xs text-blue-700 underline view-animal-link" data-tag="${escapeHtml(a.tag)}">View</button>
     </div>`).join("");
 
+  const withdrawal = dashboard.in_withdrawal || [];
+  document.getElementById("withdrawalCard").classList.toggle("hidden", withdrawal.length === 0);
+  document.getElementById("withdrawalList").innerHTML = withdrawal.map((a) => `
+    <div class="flex justify-between items-center py-1 border-b border-slate-100 last:border-0">
+      <span><span class="font-semibold">${escapeHtml(a.tag)}</span> ${a.name ? escapeHtml(a.name) : ""}
+        <span class="text-slate-500">- clear from ${Kudde.fmtDate(a.until)}</span></span>
+      <button class="text-xs text-blue-700 underline view-animal-link" data-tag="${escapeHtml(a.tag)}">View</button>
+    </div>`).join("");
+
   const recentEl = document.getElementById("recentActivityList");
   recentEl.innerHTML = dashboard.recent_events.length
     ? dashboard.recent_events.map((e) => `
@@ -95,7 +104,7 @@ function renderDashboard() {
           <i class="fa-solid ${EVENT_ICON[e.kind] || "fa-circle"} event-icon-${e.kind} w-4"></i>
           <div class="flex-1">
             <span class="font-semibold">${escapeHtml(e.tag)}</span>${e.name ? ` ${escapeHtml(e.name)}` : ""}
-            <span class="text-slate-500">- ${escapeHtml(Kudde.eventLabel(e.kind))}${e.value != null ? ` ${Kudde.fmtKg(e.value)}` : ""}${e.location ? `${e.kind === "movement" ? " to " : " in "}${escapeHtml(e.location)}` : ""}</span>
+            <span class="text-slate-500">- ${escapeHtml(Kudde.eventLabel(e.kind))}${e.value != null ? ` ${Kudde.fmtKg(e.value)}` : ""}${e.location ? `${e.kind === "movement" ? " to " : " in "}${escapeHtml(e.location)}` : ""}${e.product ? `: ${escapeHtml(e.product)}` : ""}</span>
           </div>
           <div class="text-xs text-slate-400 text-right">
             <div>${Kudde.fmtDate(e.event_date)}</div>
@@ -118,6 +127,7 @@ function renderDashboard() {
 
 async function loadAnimals() {
   await KuddeCamps.load();   // the chips, kept in step with the herd
+  await KuddeProducts.load();
   try {
     animals = await Kudde.api("/api/animals");
     Kudde.setOffline(false);
@@ -149,7 +159,7 @@ function renderHerdTable() {
       <td class="p-3">${escapeHtml(a.camp || "-")}</td>
       <td class="p-3 whitespace-nowrap">${a.last_weight == null ? "-"
         : `${Kudde.fmtKg(a.last_weight)} <span class="text-xs text-slate-400">${Kudde.fmtDate(a.last_weight_date)}</span>`}</td>
-      <td class="p-3"><span class="text-xs font-semibold px-2 py-1 rounded-full status-pill-${a.status}">${STATUS_LABEL[a.status]}</span></td>
+      <td class="p-3 whitespace-nowrap"><span class="text-xs font-semibold px-2 py-1 rounded-full status-pill-${a.status}">${STATUS_LABEL[a.status]}</span>${Kudde.inWithdrawal(a.withdrawal_until) ? `<div class="mt-1"><span class="withdrawal-pill text-xs font-semibold px-2 py-0.5 rounded-full">Withdrawal to ${Kudde.fmtDate(a.withdrawal_until)}</span></div>` : ""}</td>
     </tr>`).join("");
   document.getElementById("herdEmpty").classList.toggle("hidden", filtered.length > 0);
 
@@ -277,7 +287,7 @@ async function refreshEventsList() {
             <i class="fa-solid ${EVENT_ICON[e.kind] || "fa-circle"} event-icon-${e.kind} w-4"></i>
             <div class="flex-1">
               <span class="font-medium">${escapeHtml(Kudde.eventLabel(e.kind))}</span>
-              ${e.value != null ? ` - ${Kudde.fmtKg(e.value)}` : ""}${e.location ? ` - ${escapeHtml(e.location)}` : ""}
+              ${e.value != null ? ` - ${Kudde.fmtKg(e.value)}` : ""}${e.location ? ` - ${escapeHtml(e.location)}` : ""}${Kudde.treatmentSummary(e) ? ` - ${escapeHtml(Kudde.treatmentSummary(e))}` : ""}
               ${e.note ? `<div class="text-xs text-slate-500">${escapeHtml(e.note)}</div>` : ""}
             </div>
             <div class="text-xs text-slate-400 text-right">
@@ -354,6 +364,12 @@ function syncEventForm() {
   const kind = document.getElementById("newEventKind").value;
   document.getElementById("newEventValueRow").classList.toggle("hidden", kind !== "weight");
   if (kind === "weight") showWeightHint();
+  document.getElementById("newEventTreatmentRows").classList.toggle("hidden", kind !== "treatment");
+  if (kind === "treatment") {
+    KuddeProducts.render(document.getElementById("newEventProductChips"), {
+      product: document.getElementById("newEventProduct"), dose: document.getElementById("newEventDose"),
+      withdrawal: document.getElementById("newEventWithdrawal") });
+  }
   const placing = kind === "movement" || kind === "birth";
   document.getElementById("newEventLocationRow").classList.toggle("hidden", !placing);
   if (placing) {
@@ -377,7 +393,10 @@ async function addEvent() {
   // picked from a dropdown that is easy to leave on the wrong entry.
   if (kind === "death" || kind === "sale") {
     const label = kind === "death" ? "dead" : "sold";
-    if (!confirm(`Record ${editingTag} as ${label}? It will be marked ${STATUS_LABEL[label]} and leave the live herd.`)) return;
+    const animal = animals.find((a) => a.tag === editingTag);
+    const warning = kind === "sale" && animal && Kudde.inWithdrawal(animal.withdrawal_until)
+      ? `\n\nWARNING: ${editingTag} is in withdrawal until ${Kudde.fmtDate(animal.withdrawal_until)} and should not be slaughtered before then.` : "";
+    if (!confirm(`Record ${editingTag} as ${label}? It will be marked ${STATUS_LABEL[label]} and leave the live herd.${warning}`)) return;
   }
 
   const payload = {
@@ -387,7 +406,15 @@ async function addEvent() {
     value,
     location: document.getElementById("newEventLocation").value.trim(),
     note: document.getElementById("newEventNote").value.trim(),
+    product: document.getElementById("newEventProduct").value.trim(),
+    dose: document.getElementById("newEventDose").value.trim(),
+    withdrawal_days: /^\d+$/.test(document.getElementById("newEventWithdrawal").value.trim())
+      ? parseInt(document.getElementById("newEventWithdrawal").value, 10) : null,
   };
+  if (kind === "treatment" && payload.withdrawal_days === null
+      && document.getElementById("newEventWithdrawal").value.trim() !== "") {
+    Kudde.toast("Withdrawal must be a whole number of days"); return;
+  }
 
   try {
     await Kudde.api("/api/events", { method: "POST", body: payload });
@@ -399,9 +426,10 @@ async function addEvent() {
   }
 
   const newCamp = payload.location && !KuddeCamps.isKnown(payload.location) ? payload.location : null;
-  document.getElementById("newEventValue").value = "";
-  document.getElementById("newEventLocation").value = "";
-  document.getElementById("newEventNote").value = "";
+  for (const id of ["newEventValue", "newEventLocation", "newEventNote", "newEventProduct", "newEventDose", "newEventWithdrawal"]) {
+    document.getElementById(id).value = "";
+  }
+  if (kind === "treatment") { KuddeProducts.remember({ product: payload.product, dose: payload.dose, withdrawal_days: payload.withdrawal_days }); syncEventForm(); }
   Kudde.toast(newCamp ? `Event recorded - new camp ${newCamp} added to Settings` : "Event recorded");
   if (newCamp) { await KuddeCamps.load(); syncEventForm(); }
   await refreshEventsList();

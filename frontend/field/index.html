@@ -17,6 +17,7 @@
 <script src="../shared/api.js"></script>
 <script src="../shared/ptr.js"></script>
 <script src="../shared/camps.js"></script>
+<script src="../shared/products.js"></script>
 <script src="idb.js"></script>
 </head>
 <body class="bg-slate-100 min-h-screen">
@@ -186,6 +187,24 @@
            noticed here and not in a report six months on. -->
       <div id="eventValueHint" class="text-xs text-slate-500 min-h-4 mb-2"></div>
     </div>
+    <!-- Treatment only. Product, dose and the withdrawal in days off the
+         label; chips for the bottles used before. -->
+    <div id="eventTreatmentRows" class="hidden">
+      <label class="text-xs text-slate-500">Product</label>
+      <div id="eventProductChips" class="chip-row"></div>
+      <input id="eventProduct" type="text" placeholder="e.g. Ivermectin" autocomplete="off"
+             class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="text-xs text-slate-500">Dose</label>
+          <input id="eventDose" type="text" placeholder="e.g. 5 ml" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">Withdrawal (days)</label>
+          <input id="eventWithdrawal" type="number" inputmode="numeric" min="0" step="1" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+        </div>
+      </div>
+    </div>
     <div id="eventLocationRow" class="hidden">
       <label class="text-xs text-slate-500">Camp</label>
       <div id="eventLocationChips" class="chip-row"></div>
@@ -237,9 +256,24 @@
       <div class="text-xs text-slate-500 mb-3">One animal after another: type the tag, the number, Save and next. Every save is recorded straight away, online or not.</div>
       <label class="text-xs text-slate-500">Date *</label>
       <input id="sessionDate" type="date" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
-      <div id="sessionNoteRow" class="hidden">
-        <label class="text-xs text-slate-500">Treatment (recorded on every animal)</label>
-        <input id="sessionNote" type="text" placeholder="e.g. Ivermectin 5 ml" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+      <div id="sessionTreatmentRows" class="hidden">
+        <div class="text-xs text-slate-500 mb-1">Recorded on every animal in the session:</div>
+        <label class="text-xs text-slate-500">Product *</label>
+        <div id="sessionProductChips" class="chip-row"></div>
+        <input id="sessionProduct" type="text" placeholder="e.g. Ivermectin" autocomplete="off"
+               class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="text-xs text-slate-500">Dose</label>
+            <input id="sessionDose" type="text" placeholder="e.g. 5 ml" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+          </div>
+          <div>
+            <label class="text-xs text-slate-500">Withdrawal (days)</label>
+            <input id="sessionWithdrawal" type="number" inputmode="numeric" min="0" step="1" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+          </div>
+        </div>
+        <label class="text-xs text-slate-500">Note</label>
+        <input id="sessionNote" type="text" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
       </div>
       <div class="flex gap-2 mt-3">
         <button id="cancelSessionBtn" class="flex-1 rounded-lg py-3 bg-slate-100">Cancel</button>

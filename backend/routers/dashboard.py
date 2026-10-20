@@ -5,6 +5,7 @@ from sqlmodel import Session, func, select
 
 from db import get_session
 from models import Animal, AnimalStatus, Event, EventKind
+from routers.events import withdrawal_until
 from tags import tag_sort_key
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -53,8 +54,17 @@ def dashboard(session: Session = Depends(get_session)):
         key=lambda a: tag_sort_key(a.tag),
     )
 
+    # Alive animals still inside a withdrawal period, soonest clear first:
+    # the ones that must not go to the sale this week.
+    until = withdrawal_until(session)
+    in_withdrawal = sorted(
+        ({"tag": a.tag, "name": a.name, "until": until[a.id]} for a in alive if a.id in until),
+        key=lambda row: (row["until"], tag_sort_key(row["tag"])),
+    )
+
     return {
         "herd_counts": herd_counts,
+        "in_withdrawal": in_withdrawal,
         "total_alive": herd_counts[AnimalStatus.alive.value],
         "recent_events": recent_events,
         "needs_weighing": needs_weighing,
