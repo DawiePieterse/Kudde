@@ -189,6 +189,30 @@ body {
 .sheet-confirm { background: var(--boord-blue); color: white; }
 .sheet-confirm.sheet-danger { background: var(--boord-red); }
 
+/* The Field herd list. One white block per camp, its header a tap to
+   collapse, and inside it rows of one line of tag plus one line of grey,
+   hairline-divided and about half the height of the cards they replaced:
+   a herd of hundreds has to fit a phone. The whole row is the tap target. */
+.herd-group { background: white; border-radius: 0.75rem; box-shadow: 0 1px 2px rgba(0,0,0,0.08); overflow: hidden; }
+.group-head {
+  width: 100%; display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.7rem 0.75rem; font-weight: 700; text-align: left;
+}
+.group-head .group-count { color: #64748b; font-weight: 600; font-size: 0.9rem; }
+.group-head .group-chevron { margin-left: auto; color: #94a3b8; font-size: 0.8rem; transition: transform 0.15s; }
+.herd-group.collapsed .group-chevron { transform: rotate(-90deg); }
+.herd-group.collapsed .group-rows { display: none; }
+.herd-row {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.45rem 0.75rem; border-top: 1px solid #f1f5f9; min-height: 3rem;
+}
+.herd-row:active { background: #f8fafc; }
+.herd-row .row-main { flex: 1; min-width: 0; }
+.herd-row .row-tag { font-weight: 700; font-size: 1.05rem; line-height: 1.3; }
+.herd-row .row-sub { color: #475569; font-size: 0.8125rem; line-height: 1.2rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.herd-row .row-right { display: flex; flex-direction: column; align-items: flex-end; gap: 0.15rem; flex-shrink: 0; }
+.herd-row .row-kg { font-weight: 600; font-size: 0.95rem; }
+
 .tab-btn { flex: 1; text-align: center; padding: 0.6rem 0; font-size: 0.8rem; white-space: nowrap; padding-left: 1rem; padding-right: 1rem; }
 .tab-btn.active { color: var(--boord-blue); font-weight: 600; border-bottom: 3px solid var(--boord-blue); }
 
