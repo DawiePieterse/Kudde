@@ -224,6 +224,29 @@ function uuid() {
 // Rendering
 // ---------------------------------------------------------------------
 
+// Which camp sections are folded shut, by lowercased camp name ("" for
+// the no-camp group), remembered per device. Until the farmer has touched
+// one, a herd past FOLD_ABOVE head starts folded and a small one starts
+// open: thirty rows read as a list, three hundred read as a wall.
+const GROUPS_KEY = "kudde_field_groups";
+const FOLD_ABOVE = 40;
+let collapsedGroups = null;   // Set, or null until first needed
+
+function loadCollapsed(groupKeys, total) {
+  if (collapsedGroups) return;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(GROUPS_KEY) || "null");
+    if (parsed && Array.isArray(parsed.collapsed)) { collapsedGroups = new Set(parsed.collapsed); return; }
+  } catch (_) { /* unreadable: use the default */ }
+  collapsedGroups = new Set(total > FOLD_ABOVE ? groupKeys : []);
+}
+
+function toggleGroup(key) {
+  if (collapsedGroups.has(key)) collapsedGroups.delete(key); else collapsedGroups.add(key);
+  try { localStorage.setItem(GROUPS_KEY, JSON.stringify({ collapsed: [...collapsedGroups] })); } catch (_) { /* applied, not remembered */ }
+  renderAnimalList();
+}
+
 function renderAnimalList() {
   const needle = document.getElementById("searchInput").value.trim().toLowerCase();
   const filtered = needle
@@ -249,41 +272,97 @@ function renderAnimalList() {
   // Sorted on a copy: with no search term `filtered` IS `animals`, and
   // Array.sort works in place - so rendering the list was quietly reordering
   // the module's own copy of the herd.
-  for (const a of [...filtered].sort((x, y) => Kudde.compareTags(x.tag, y.tag))) {
-    const card = document.createElement("div");
-    card.className = "bg-white rounded-xl p-3 shadow flex items-center justify-between";
-    card.innerHTML = `
-      <div>
-        <div class="font-bold text-lg">${escapeHtml(a.tag)} ${a.name ? `<span class="font-normal text-slate-500">- ${escapeHtml(a.name)}</span>` : ""}</div>
-        <div class="text-xs text-slate-500">${rowDetail(a)}</div>
-      </div>
-      <span class="flex items-center gap-1.5 shrink-0">
-        ${pendingTags.has(a.tag) ? `<i class="fa-solid fa-cloud-arrow-up unsynced-dot" title="Not yet synced"></i>` : ""}
-        <span class="text-xs font-semibold px-2 py-1 rounded-full status-pill-${a.status}">${STATUS_LABEL[a.status] || a.status}</span>
-      </span>
-    `;
-    card.addEventListener("click", () => openAnimalDetail(a.tag));
-    list.appendChild(card);
+  const sorted = [...filtered].sort((x, y) => Kudde.compareTags(x.tag, y.tag));
+
+  // A search crosses camps, so its results are one flat block. Otherwise
+  // the herd is shown camp by camp, in Settings order, then camps only the
+  // history knows, then the animals with no camp.
+  if (needle) {
+    if (sorted.length) list.appendChild(renderGroup(null, sorted, { flat: true }));
+    return;
+  }
+
+  const byKey = new Map();
+  for (const a of sorted) {
+    const key = (a.camp || "").trim().toLowerCase();
+    if (!byKey.has(key)) byKey.set(key, { label: a.camp ? a.camp.trim() : null, animals: [] });
+    byKey.get(key).animals.push(a);
+  }
+  const order = [];
+  for (const name of KuddeCamps.names()) {
+    const key = name.trim().toLowerCase();
+    if (byKey.has(key)) order.push(key);
+  }
+  for (const key of [...byKey.keys()].sort()) {
+    if (key && !order.includes(key)) order.push(key);
+  }
+  if (byKey.has("")) order.push("");
+
+  loadCollapsed(order, sorted.length);
+  for (const key of order) {
+    const group = byKey.get(key);
+    list.appendChild(renderGroup(group.label, group.animals, { key, collapsed: collapsedGroups.has(key) }));
   }
 }
 
-// The second line of a row: where the animal is and when it was last
-// weighed - what is wanted while walking the camp - rather than the breed
-// and sex, which never change and are on the detail card.
-function rowDetail(a) {
-  const cls = Kudde.classLabel(a.class || Kudde.localClass(a));
-  const camp = a.camp ? escapeHtml(a.camp) : "No camp";
-  let weighed;
-  if (a.last_weight == null) {
-    weighed = "Not weighed";
-  } else {
-    const days = daysSince(a.last_weight_date);
-    weighed = `${Kudde.fmtKg(a.last_weight)}${days === null ? "" : ` ${days}d ago`}`;
+// One white block: a header naming the camp with its count (none for a
+// flat search result), and a row per animal.
+function renderGroup(label, members, { flat = false, key = "", collapsed = false } = {}) {
+  const block = document.createElement("div");
+  block.className = "herd-group" + (collapsed ? " collapsed" : "");
+  if (!flat) {
+    const head = document.createElement("button");
+    head.type = "button";
+    head.className = "group-head";
+    head.setAttribute("aria-expanded", String(!collapsed));
+    head.innerHTML = `
+      <span class="${label === null ? "italic text-slate-500" : ""}">${label === null ? "No camp" : escapeHtml(label)}</span>
+      <span class="group-count">${members.length}</span>
+      <i class="fa-solid fa-chevron-down group-chevron"></i>`;
+    head.addEventListener("click", () => toggleGroup(key));
+    block.appendChild(head);
   }
-  const overdue = needsWeighing(a) ? ` <i class="fa-solid fa-triangle-exclamation text-amber-500"></i>` : "";
-  const withdrawal = Kudde.inWithdrawal(a.withdrawal_until)
-    ? `<div class="mt-0.5"><span class="withdrawal-pill text-xs font-semibold px-2 py-0.5 rounded-full">Withdrawal to ${Kudde.fmtDate(a.withdrawal_until)}</span></div>` : "";
-  return `${cls} &middot; ${camp} &middot; ${weighed}${overdue}${withdrawal}`;
+  const rows = document.createElement("div");
+  rows.className = "group-rows";
+  for (const a of members) rows.appendChild(renderRow(a, { showCamp: flat }));
+  block.appendChild(rows);
+  return block;
+}
+
+function renderRow(a, { showCamp = false } = {}) {
+  const row = document.createElement("div");
+  row.className = "herd-row";
+  const days = daysSince(a.last_weight_date);
+  const weighed = a.last_weight == null ? "Not weighed" : days === null ? "weighed" : `weighed ${days}d ago`;
+  const sub = [
+    Kudde.classLabel(a.class || Kudde.localClass(a)),
+    showCamp ? (a.camp || "No camp") : null,
+    weighed,
+  ].filter(Boolean).map(escapeHtml).join(" \u00b7 ")
+    + (needsWeighing(a) ? ` <i class="fa-solid fa-triangle-exclamation text-amber-500"></i>` : "");
+  // The status pill only when it says something: on the Alive view every
+  // row would read "Alive". Withdrawal is always worth the pill.
+  const pills = [];
+  if (a.status !== "alive") pills.push(`<span class="text-xs font-semibold px-2 py-0.5 rounded-full status-pill-${a.status}">${STATUS_LABEL[a.status] || a.status}</span>`);
+  // Days left rather than the date: shorter on a row that has little
+  // width to spare, and the question at the crush is "how long still",
+  // not "which date". The detail card has the date.
+  if (Kudde.inWithdrawal(a.withdrawal_until)) {
+    const left = -daysSince(a.withdrawal_until);
+    pills.push(`<span class="withdrawal-pill text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap">Withdrawal ${left <= 0 ? "ends today" : `${left}d`}</span>`);
+  }
+  row.innerHTML = `
+    <div class="row-main">
+      <div class="row-tag">${escapeHtml(a.tag)}${a.name ? ` <span class="font-normal text-slate-500">- ${escapeHtml(a.name)}</span>` : ""}
+        ${pendingTags.has(a.tag) ? `<i class="fa-solid fa-cloud-arrow-up unsynced-dot" title="Not yet synced"></i>` : ""}</div>
+      <div class="row-sub">${sub}</div>
+    </div>
+    <div class="row-right">
+      ${a.last_weight != null ? `<span class="row-kg">${Kudde.fmtKg(a.last_weight)}</span>` : ""}
+      ${pills.join("")}
+    </div>`;
+  row.addEventListener("click", () => openAnimalDetail(a.tag));
+  return row;
 }
 
 function renderSummary() {

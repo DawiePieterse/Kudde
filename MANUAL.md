@@ -687,14 +687,26 @@ right with no signal and the moment something is recorded. **Tap Need
 weighing** and the list becomes that worklist - just the alive animals
 overdue a weighing; tap it again to go back.
 
-The list shows the cached animals, sorted by tag the way they are read
-(B2 before B10). Each row shows the tag and name, then its **class**
-(cow, heifer, bull, steer or calf - see [chapter
-1](#cows-heifers-bulls-steers-and-calves)), **the camp the animal is in
-and its last weight** with how long ago that was - the two
-things you want while walking the herd - with a small warning triangle on
-an animal that needs weighing. Breed and sex are on the detail card. Tap
-any animal to open its detail.
+The list shows the cached animals **camp by camp**: one block per camp,
+in the order Settings lists them, with its count in the header, then any
+camp only the history knows, then *No camp* last. Tap a camp's header to
+fold it shut or open it; the phone remembers which are open. A herd of
+more than forty starts with every camp folded, so whoever is standing in
+a camp opens that one and sees its thirty head, not a scroll through
+three hundred. A smaller herd starts open.
+
+Within a camp the animals are sorted by tag the way they are read (B2
+before B10), one compact row each: the tag and name, then a grey line
+with its **class** (cow, heifer, bull, steer or calf - see [chapter
+1](#cows-heifers-bulls-steers-and-calves)) and how long ago it was
+weighed, with a small warning triangle on an animal that needs weighing;
+the last weight on the right. A pill appears only when it says something
+- Dead, Sold, or a red *Withdrawal 12d* with the days still to run (the
+detail card has the date). Breed and sex are on the
+detail card. Tap any row to open the animal.
+
+Typing in the search box shows the matches as one flat block across all
+camps, each row then naming its camp.
 
 The list shows **alive animals only** unless you switch it to **All**,
 which adds the dead and sold ones. The phone remembers the switch. Typing
