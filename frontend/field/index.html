@@ -87,6 +87,18 @@
     </button>
   </div>
 
+  <!-- What this phone recorded today, to check before leaving the kraal.
+       Kept on the device (localStorage), so it is there with no signal
+       and includes what is still in the outbox. Hidden until there is
+       something in it. -->
+  <div id="todayCard" class="bg-white rounded-xl p-3 shadow hidden">
+    <button id="todayToggle" type="button" class="w-full flex items-center justify-between">
+      <span class="font-semibold"><i class="fa-solid fa-clock-rotate-left text-slate-400"></i> Today</span>
+      <span class="text-sm text-slate-500"><span id="todayCount">0</span> recorded <i class="fa-solid fa-chevron-down text-xs" id="todayChevron"></i></span>
+    </button>
+    <div id="todayList" class="hidden mt-2 space-y-1 text-sm max-h-56 overflow-y-auto"></div>
+  </div>
+
   <!-- Animal list -->
   <div id="animalList" class="space-y-2"></div>
   <div id="emptyState" class="hidden text-center text-slate-400 text-sm py-6">No animals yet</div>
@@ -194,6 +206,7 @@
   <div class="bg-white rounded-xl p-5 w-full max-w-sm m-auto">
     <div class="font-bold text-lg mb-3" id="eventModalTitle">Record event</div>
     <label class="text-xs text-slate-500">Date *</label>
+    <div class="chip-row" data-date-chips="eventDate"></div>
     <input id="eventDate" type="date" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
     <div id="eventValueRow" class="hidden">
       <label class="text-xs text-slate-500" id="eventValueLabel">Weight (kg)</label>
@@ -250,6 +263,7 @@
       <div class="text-xs text-slate-500 mb-2">Uncheck any animal that isn't moving</div>
       <div id="moveAnimalsList" class="space-y-1 max-h-40 overflow-y-auto mb-3 border border-slate-200 rounded-lg p-2"></div>
       <label class="text-xs text-slate-500">Date *</label>
+      <div class="chip-row" data-date-chips="moveDate"></div>
       <input id="moveDate" type="date" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
       <label class="text-xs text-slate-500">To camp *</label>
       <div id="moveToChips" class="chip-row"></div>
@@ -271,6 +285,7 @@
     <div class="font-bold text-lg mb-1"><span id="calvingDam"></span> calved</div>
     <div class="text-xs text-slate-500 mb-3">Records the calving on the cow and adds the calf, with her as the dam.</div>
     <label class="text-xs text-slate-500">Date *</label>
+    <div class="chip-row" data-date-chips="calvingDate"></div>
     <input id="calvingDate" type="date" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
     <label class="text-xs text-slate-500">Calf tag *</label>
     <input id="calfTag" type="text" autocomplete="off" autocapitalize="characters" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
@@ -320,6 +335,7 @@
       <div class="font-bold text-lg mb-1" id="sessionSetupTitle">Weigh session</div>
       <div class="text-xs text-slate-500 mb-3">One animal after another: type the tag, the number, Save and next. Every save is recorded straight away, online or not.</div>
       <label class="text-xs text-slate-500">Date *</label>
+      <div class="chip-row" data-date-chips="sessionDate"></div>
       <input id="sessionDate" type="date" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
       <div id="sessionTreatmentRows" class="hidden">
         <div class="text-xs text-slate-500 mb-1">Recorded on every animal in the session:</div>

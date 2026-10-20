@@ -666,6 +666,16 @@ anywhere) or name. **Add animal** opens a form for:
 
 New animals start **Alive**.
 
+### Today
+
+Below the counts, once anything has been recorded today, a **Today** card
+with how many records this phone has made since midnight. Tap it to open
+the list - time, tag and what was recorded, newest first, with *(on
+phone)* after anything still waiting to sync. It is the check before
+leaving the kraal: did the weighing go in, did I record the move. It is
+kept on the phone, so it is there with no signal, and starts empty each
+morning. Tap a line to open that animal.
+
 ### The herd summary and list
 
 Below the search box, an **Alive / All** switch and two counts: **Alive**,
@@ -702,7 +712,9 @@ red: they are the two that take the animal out of the live herd.)
 On an Android phone the **back button closes whatever sheet is open**
 rather than leaving the app.
 
-Each opens a small form: a date (defaults to today), a value in kg
+Each opens a small form: a date (defaults to today, with **Today** and
+**Yesterday** chips above the box so the second-most-common case - last
+night's record written up this morning - is one tap too), a value in kg
 (weight only), the camp as a row of chips (movement and birth only - see
 [Camps](#camps-and-moving-a-whole-one)), and a free-text note.
 

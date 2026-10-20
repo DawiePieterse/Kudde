@@ -115,6 +115,106 @@ window.addEventListener("popstate", () => {
   if (closer) closer();
 });
 
+// ---------------------------------------------------------------------
+// Date chips: Today / Yesterday above every date box
+// ---------------------------------------------------------------------
+//
+// Nearly every record is today's, the rest are yesterday's written up
+// the next morning. Two chips cover both without the native picker,
+// which on a phone is a scroll-wheel in the sun. The box stays, for the
+// rare older date.
+
+function initDateChips() {
+  document.querySelectorAll("[data-date-chips]").forEach((row) => {
+    const input = document.getElementById(row.dataset.dateChips);
+    const make = (label, daysAgo) => {
+      const el = document.createElement("button");
+      el.type = "button";
+      el.className = "chip";
+      el.dataset.daysAgo = daysAgo;
+      el.textContent = label;
+      el.addEventListener("click", () => {
+        const d = new Date();
+        d.setDate(d.getDate() - daysAgo);
+        setDate(input.id, Kudde.localDateStr(d));
+      });
+      row.appendChild(el);
+    };
+    make("Today", 0);
+    make("Yesterday", 1);
+    input.addEventListener("input", () => syncDateChips(input.id));
+  });
+}
+
+function syncDateChips(inputId) {
+  const row = document.querySelector(`[data-date-chips="${inputId}"]`);
+  if (!row) return;
+  const value = document.getElementById(inputId).value;
+  row.querySelectorAll(".chip").forEach((chip) => {
+    const d = new Date();
+    d.setDate(d.getDate() - parseInt(chip.dataset.daysAgo, 10));
+    chip.classList.toggle("active", value === Kudde.localDateStr(d));
+  });
+}
+
+// Sets a date box and lights the matching chip. Every place that defaults
+// a date to today goes through here.
+function setDate(inputId, value) {
+  document.getElementById(inputId).value = value;
+  syncDateChips(inputId);
+}
+
+// ---------------------------------------------------------------------
+// Today: what this phone recorded today
+// ---------------------------------------------------------------------
+//
+// The check before leaving the kraal: did the weighing of B12 go in, did
+// I record the move. Kept in localStorage rather than asked of the server,
+// so it is there with no signal and includes what is still in the outbox;
+// a new day starts it empty.
+
+const TODAY_KEY = "kudde_today";
+
+function todayLog() {
+  const today = Kudde.localDateStr();
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TODAY_KEY) || "null");
+    if (parsed && parsed.date === today && Array.isArray(parsed.entries)) return parsed;
+  } catch (_) { /* unreadable: start afresh */ }
+  return { date: today, entries: [] };
+}
+
+function logToday(text, tag) {
+  const log = todayLog();
+  log.entries.unshift({ time: Kudde.fmtTime(new Date()), text, tag: tag || null });
+  try { localStorage.setItem(TODAY_KEY, JSON.stringify(log)); } catch (_) { /* full or private: shown this session only */ }
+  renderToday(log);
+}
+
+function renderToday(log = todayLog()) {
+  const n = log.entries.length;
+  document.getElementById("todayCard").classList.toggle("hidden", n === 0);
+  document.getElementById("todayCount").textContent = n;
+  document.getElementById("todayList").innerHTML = log.entries.map((e) => `
+    <div class="flex items-center gap-2 py-1 border-b border-slate-100 last:border-0 ${e.tag ? "cursor-pointer" : ""}" ${e.tag ? `data-tag="${escapeHtml(e.tag)}"` : ""}>
+      <span class="text-xs text-slate-400 w-11 shrink-0">${escapeHtml(e.time)}</span>
+      ${e.tag ? `<span class="font-semibold">${escapeHtml(e.tag)}</span>` : ""}
+      <span class="flex-1 min-w-0 truncate">${escapeHtml(e.text)}</span>
+    </div>`).join("");
+  document.getElementById("todayList").querySelectorAll("[data-tag]").forEach((row) => {
+    row.addEventListener("click", () => { if (animals.some((a) => a.tag === row.dataset.tag)) openAnimalDetail(row.dataset.tag); });
+  });
+}
+
+// One line for the Today list from an event payload.
+function describeEvent(payload) {
+  const kind = Kudde.eventLabel(payload.kind);
+  if (payload.kind === "weight") return `${kind} ${Kudde.fmtKg(payload.value)}`;
+  if (payload.kind === "treatment") return payload.product ? `${kind}: ${payload.product}${payload.dose ? ` ${payload.dose}` : ""}` : kind;
+  if (payload.kind === "movement") return payload.location ? `Moved to ${payload.location}` : kind;
+  return kind;
+}
+
 function uuid() {
   return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -311,6 +411,7 @@ async function confirmAddAnimal() {
   }
 
   if (saved._pending && payload.camp) saved.camp = payload.camp;
+  logToday(`Added${payload.camp ? ` in ${payload.camp}` : ""}${saved._pending ? " (on phone)" : ""}`, tag);
   animals.push(saved);
   await IDB.cacheAnimals(animals);
   renderAnimalList();
@@ -432,12 +533,14 @@ async function uploadAnimalPhoto(tag, file) {
                           photoFormData(file, clientUuid));
     Kudde.setOffline(false);
     Kudde.toast("Photo saved");
+    logToday("Photo", tag);
   } catch (e) {
     if (!Kudde.isNetworkError(e)) { Kudde.toast(Kudde.errorDetail(e)); return; }
     Kudde.setOffline(true);
     await IDB.enqueue({ uuid: clientUuid, kind: "photo",
                         payload: { tag, blob: file, type: file.type, client_uuid: clientUuid } });
     Kudde.toast("Saved on this device - will sync when online");
+    logToday("Photo (on phone)", tag);
   }
   if (activeTag === tag) await renderAnimalPhotos();
 }
@@ -461,7 +564,7 @@ function openEventModal(kind) {
   activeEventKind = kind;
   const cfg = EVENT_FIELD_CONFIG[kind];
   document.getElementById("eventModalTitle").textContent = cfg.title;
-  document.getElementById("eventDate").value = Kudde.localDateStr();
+  setDate("eventDate", Kudde.localDateStr());
   document.getElementById("eventValue").value = "";
   document.getElementById("eventLocation").value = "";
   document.getElementById("eventNote").value = "";
@@ -560,6 +663,7 @@ async function saveEvent(fields) {
   if (payload.kind === "treatment") {
     KuddeProducts.remember({ product: payload.product, dose: payload.dose, withdrawal_days: payload.withdrawal_days });
   }
+  logToday(describeEvent(payload) + (pending ? " (on phone)" : ""), payload.tag);
   return { pending };
 }
 
@@ -656,7 +760,7 @@ function openCalving() {
   const dam = animals.find((a) => a.tag === activeTag);
   if (!dam) return;
   document.getElementById("calvingDam").textContent = dam.tag;
-  document.getElementById("calvingDate").value = Kudde.localDateStr();
+  setDate("calvingDate", Kudde.localDateStr());
   for (const id of ["calfTag", "calfName", "calfSireTag", "calvingNote"]) document.getElementById(id).value = "";
   // The cow's breed and camp are the calf's until told otherwise.
   document.getElementById("calfBreed").value = dam.breed || "";
@@ -719,6 +823,7 @@ async function confirmCalving() {
     animals.push(calf);
     await IDB.cacheAnimals(animals);
   }
+  logToday(`Calved, calf ${calfTag}${pending ? " (on phone)" : ""}`, dam.tag);
   const newCamp = camp && !KuddeCamps.isKnown(camp) ? camp : null;
   closeCalving();
   renderAnimalList();
@@ -783,7 +888,7 @@ function openMoveAnimals(index) {
 
   document.getElementById("moveFromLocation").textContent = moveSelectedLocation.location === null
     ? "no camp" : moveSelectedLocation.location;
-  document.getElementById("moveDate").value = Kudde.localDateStr();
+  setDate("moveDate", Kudde.localDateStr());
   document.getElementById("moveToLocation").value = "";
   document.getElementById("moveNote").value = "";
   KuddeCamps.render(document.getElementById("moveToChips"), document.getElementById("moveToLocation"),
@@ -842,6 +947,7 @@ async function confirmMove() {
     refreshSyncStatusPill().catch(() => {});
   }
 
+  logToday(`Moved ${tags.length} animal${tags.length === 1 ? "" : "s"} to ${location}${pending ? " (on phone)" : ""}`, null);
   // The cached herd follows the move at once; loadAnimals then replaces it
   // with the server's copy when there is one.
   for (const a of animals) if (tags.includes(a.tag)) a.camp = location;
@@ -869,7 +975,7 @@ let session = null;   // {kind, date, note, log: [{tag, value, pending}]} while 
 function openSessionSetup(kind) {
   session = { kind, date: Kudde.localDateStr(), note: "", treatment: null, log: [] };
   document.getElementById("sessionSetupTitle").textContent = kind === "weight" ? "Weigh session" : "Treat session";
-  document.getElementById("sessionDate").value = session.date;
+  setDate("sessionDate", session.date);
   for (const id of ["sessionNote", "sessionProduct", "sessionDose", "sessionWithdrawal"]) document.getElementById(id).value = "";
   document.getElementById("sessionTreatmentRows").classList.toggle("hidden", kind !== "treatment");
   if (kind === "treatment") {
@@ -1155,6 +1261,14 @@ async function init() {
   Kudde.onOfflineChange = () => { refreshSyncStatusPill().catch(() => {}); };
 
   document.getElementById("searchInput").addEventListener("input", renderAnimalList);
+  initDateChips();
+  renderToday();
+  document.getElementById("todayToggle").addEventListener("click", () => {
+    const list = document.getElementById("todayList");
+    list.classList.toggle("hidden");
+    document.getElementById("todayChevron").classList.toggle("fa-chevron-down", list.classList.contains("hidden"));
+    document.getElementById("todayChevron").classList.toggle("fa-chevron-up", !list.classList.contains("hidden"));
+  });
   const setListFilter = (value) => {
     listFilter = value;
     try { localStorage.setItem(LIST_FILTER_KEY, value); } catch (_) { /* not remembered, still applied */ }
