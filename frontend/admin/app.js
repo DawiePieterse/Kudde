@@ -254,7 +254,11 @@ async function refreshPhotosList() {
         <button class="delete-photo-btn absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-black/60 text-white text-xs flex items-center justify-center" data-id="${p.id}">
           <i class="fa-solid fa-xmark"></i>
         </button>`;
-      thumb.querySelector("img").addEventListener("click", () => window.open(p.url, "_blank"));
+      thumb.querySelector("img").addEventListener("click", () => {
+        document.getElementById("photoViewerImg").src = p.url;
+        document.getElementById("photoViewer").classList.remove("hidden");
+        document.getElementById("photoViewer").classList.add("flex");
+      });
       thumb.querySelector(".delete-photo-btn").addEventListener("click", async () => {
         // A deleted photo has no undo, and the x is small enough to hit
         // while aiming for the photo itself.
@@ -882,6 +886,11 @@ async function init() {
   document.getElementById("cancelMoveBtn").addEventListener("click", closeMoveModal);
   document.getElementById("backMoveBtn").addEventListener("click", backToMoveLocations);
   document.getElementById("confirmMoveBtn").addEventListener("click", confirmMove);
+  document.getElementById("photoViewer").addEventListener("click", () => {
+    document.getElementById("photoViewer").classList.add("hidden");
+    document.getElementById("photoViewer").classList.remove("flex");
+    document.getElementById("photoViewerImg").src = "";
+  });
   document.getElementById("addPhotoBtn").addEventListener("click", () => {
     document.getElementById("photoInput").click();
   });

@@ -691,12 +691,16 @@ is set, so a sold animal's tag still finds it.
 
 ### Animal detail and recording an event
 
-Tapping an animal opens its tag, name/breed/sex, status pill, and six
-quick-action buttons:
+Tapping an animal opens its tag, name/breed/class, status pill, an **×**
+to close, and six quick-action buttons:
 
 **Weight · Treatment · Move · Calved · Sale · Death**
 
-(**Calved** appears on cows only.)
+(**Calved** appears on cows only. **Sale** and **Death** are outlined in
+red: they are the two that take the animal out of the live herd.)
+
+On an Android phone the **back button closes whatever sheet is open**
+rather than leaving the app.
 
 Each opens a small form: a date (defaults to today), a value in kg
 (weight only), the camp as a row of chips (movement and birth only - see
@@ -776,9 +780,12 @@ animal first.
 
 The detail screen has a **Take photo** button. On a phone it opens the
 camera directly; on a PC it opens a file picker. Photos appear as a row
-of thumbnails - tap one to open it full size, or the small **×** on its
+of thumbnails - tap one to open it full screen, or the small **×** on its
 corner to delete it (it asks first - a deleted photo can't be brought
 back).
+
+Tapping a thumbnail opens the photo full screen inside the app; tap
+anywhere to close it.
 
 Photos work offline the same way events do: taken with no signal, the
 photo is held on the device and uploaded when a connection comes back.
@@ -826,6 +833,8 @@ Behind the scenes:
 - The herd list is cached on the device (IndexedDB), so it's browsable
   offline - though each animal's event *history* is fetched live and
   isn't available offline.
+- An animal with anything of its own still in the outbox shows a small
+  amber cloud beside its status pill until it has synced.
 - Anything that couldn't reach the server goes into an on-device outbox
   and is retried automatically: every 20 seconds, the moment the browser
   reports it's back online, and on every pull-to-refresh. The outbox

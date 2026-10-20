@@ -97,6 +97,22 @@ body {
 }
 .action-btn:active { background: #f1f5f9; }
 .action-btn i { font-size: 1.4rem; }
+.action-btn-danger { border-color: #fca5a5; color: var(--boord-red); }
+.action-btn-danger i { color: var(--boord-red); }
+
+/* Field is read in sunlight at arm's length, often through a dusty
+   screen. The small grey text Tailwind's defaults give (12px slate-500)
+   is fine at a desk and gone outdoors, so Field alone gets a size up and
+   a shade darker. Admin keeps the defaults: it is an office screen. */
+.app-field .text-xs { font-size: 0.8125rem; line-height: 1.2rem; }
+.app-field .text-sm { font-size: 0.9375rem; }
+.app-field .text-slate-500 { color: #475569; }
+.app-field .text-slate-400 { color: #64748b; }
+
+/* A row with something of its own still in the outbox. Amber, small and
+   beside the status pill, so it is seen without shouting; the sync pill
+   in the header has the count. */
+.unsynced-dot { color: #d97706; font-size: 0.7rem; }
 
 /* Two-way switch (Field list: Alive / All). A segmented control rather
    than a checkbox because the two states need naming - "show dead and

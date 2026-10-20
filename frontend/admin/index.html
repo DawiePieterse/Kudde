@@ -363,6 +363,14 @@
   </div>
 </div>
 
+<!-- Photo viewer: in-page, as in Field. -->
+<div id="photoViewer" class="fixed inset-0 bg-black/90 hidden items-center justify-center z-[60] p-2">
+  <img id="photoViewerImg" class="max-w-full max-h-full object-contain" alt="">
+  <button type="button" class="absolute top-3 right-3 w-10 h-10 rounded-full bg-white/20 text-white text-xl" aria-label="Close">
+    <i class="fa-solid fa-xmark"></i>
+  </button>
+</div>
+
 <!-- Move camp modal -->
 <div id="moveModal" class="fixed inset-0 bg-black/50 hidden p-4 z-40 overflow-y-auto">
   <div class="bg-white rounded-xl p-5 w-full max-w-sm m-auto">

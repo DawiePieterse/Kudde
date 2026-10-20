@@ -20,7 +20,7 @@
 <script src="../shared/products.js"></script>
 <script src="idb.js"></script>
 </head>
-<body class="bg-slate-100 min-h-screen">
+<body class="bg-slate-100 min-h-screen app-field">
 
 <div class="kudde-header px-3 pb-3" style="--header-pad: 0.75rem">
   <div class="flex items-center justify-between">
@@ -147,12 +147,19 @@
 <!-- Animal detail modal -->
 <div id="animalDetailModal" class="fixed inset-0 bg-black/50 hidden p-4 z-40 overflow-y-auto">
   <div class="bg-white rounded-xl p-5 w-full max-w-sm m-auto">
-    <div class="flex items-start justify-between mb-3">
-      <div>
+    <div class="flex items-start justify-between mb-3 gap-2">
+      <div class="min-w-0">
         <div class="font-bold text-xl" id="detailTag"></div>
         <div class="text-slate-500 text-sm" id="detailSub"></div>
       </div>
-      <span id="detailStatusPill" class="text-xs font-semibold px-2 py-1 rounded-full"></span>
+      <div class="flex items-center gap-2 shrink-0">
+        <span id="detailStatusPill" class="text-xs font-semibold px-2 py-1 rounded-full"></span>
+        <!-- Close lives here, where every sheet on a phone has it, not
+             halfway down between the actions and the photos. -->
+        <button id="closeDetailBtn" type="button" class="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center" aria-label="Close">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
     </div>
 
     <div class="grid grid-cols-3 gap-2 mb-2">
@@ -162,10 +169,11 @@
       <!-- On a cow this opens the calving screen (the birth event on the
            cow AND the new calf, in one go); hidden on a male. -->
       <button class="action-btn" id="calvedBtn" data-kind="birth"><i class="fa-solid fa-baby event-icon-birth"></i>Calved</button>
-      <button class="action-btn" data-kind="sale"><i class="fa-solid fa-hand-holding-dollar event-icon-sale"></i>Sale</button>
-      <button class="action-btn" data-kind="death"><i class="fa-solid fa-skull event-icon-death"></i>Death</button>
+      <!-- Outlined red: these two take the animal out of the live herd,
+           and they sit a thumb-width from Move and Calved. -->
+      <button class="action-btn action-btn-danger" data-kind="sale"><i class="fa-solid fa-hand-holding-dollar"></i>Sale</button>
+      <button class="action-btn action-btn-danger" data-kind="death"><i class="fa-solid fa-skull"></i>Death</button>
     </div>
-    <button id="closeDetailBtn" class="w-full rounded-lg py-2 bg-slate-100 mb-3">Close</button>
 
     <div class="flex items-center justify-between mb-2">
       <div class="text-sm font-semibold text-slate-500">Photos</div>
@@ -293,6 +301,16 @@
       <button id="confirmCalvingBtn" class="flex-1 kudde-btn-primary rounded-lg py-3 font-semibold">Save</button>
     </div>
   </div>
+</div>
+
+<!-- Photo viewer. In-page, because window.open from an installed PWA on
+     an iPhone leaves the app for Safari, and the way back is not obvious
+     in an orchard. Tap anywhere to close. -->
+<div id="photoViewer" class="fixed inset-0 bg-black/90 hidden items-center justify-center z-[60] p-2">
+  <img id="photoViewerImg" class="max-w-full max-h-full object-contain" alt="">
+  <button id="closePhotoViewerBtn" type="button" class="absolute top-3 right-3 w-10 h-10 rounded-full bg-white/20 text-white text-xl" aria-label="Close">
+    <i class="fa-solid fa-xmark"></i>
+  </button>
 </div>
 
 <!-- Session modal: weigh or treat one animal after another -->

@@ -52,6 +52,69 @@ function needsWeighing(a) {
   return days === null || days > STALE_WEIGHT_DAYS;
 }
 
+// ---------------------------------------------------------------------
+// Modals and the back button
+// ---------------------------------------------------------------------
+//
+// Every sheet opens and closes through these two, and each open pushes a
+// history entry. On an Android phone the back button then closes the
+// sheet instead of leaving the app - which is what it did before, with
+// a half-typed weighing on screen. Closing a sheet from its own button
+// pops that entry again, so the history never fills with stale ones.
+// On iOS there is no back button, and a swipe back behaves the same.
+
+const openModals = [];     // ids, innermost last
+let suppressPop = false;   // set while we pop our own entry
+
+function showModal(id) {
+  const el = document.getElementById(id);
+  el.classList.remove("hidden");
+  el.classList.add("flex");
+  if (!openModals.includes(id)) {
+    openModals.push(id);
+    try { history.pushState({ modal: id }, ""); } catch (_) { /* a file:// preview */ }
+  }
+}
+
+function hideModal(id) {
+  const el = document.getElementById(id);
+  el.classList.add("hidden");
+  el.classList.remove("flex");
+  const at = openModals.indexOf(id);
+  if (at < 0) return;
+  openModals.splice(at, 1);
+  if (history.state && history.state.modal === id) {
+    suppressPop = true;
+    history.back();
+  }
+}
+
+// The close function for each modal, so the back button closes a sheet
+// the same way its own button does - clearing state, not just hiding.
+const MODAL_CLOSERS = {
+  addAnimalModal: () => closeAddAnimal(),
+  animalDetailModal: () => closeAnimalDetail(),
+  eventModal: () => closeEventModal(),
+  calvingModal: () => closeCalving(),
+  moveModal: () => closeMoveModal(),
+  sessionModal: () => closeSession(),
+  photoViewer: () => closePhotoViewer(),
+};
+
+window.addEventListener("popstate", () => {
+  if (suppressPop) { suppressPop = false; return; }
+  const id = openModals[openModals.length - 1];
+  if (!id) return;
+  // The entry is already gone, so just hide: hideModal must not go back
+  // a second time.
+  openModals.pop();
+  const closer = MODAL_CLOSERS[id];
+  const el = document.getElementById(id);
+  el.classList.add("hidden");
+  el.classList.remove("flex");
+  if (closer) closer();
+});
+
 function uuid() {
   return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -93,7 +156,10 @@ function renderAnimalList() {
         <div class="font-bold text-lg">${escapeHtml(a.tag)} ${a.name ? `<span class="font-normal text-slate-500">- ${escapeHtml(a.name)}</span>` : ""}</div>
         <div class="text-xs text-slate-500">${rowDetail(a)}</div>
       </div>
-      <span class="text-xs font-semibold px-2 py-1 rounded-full status-pill-${a.status}">${STATUS_LABEL[a.status] || a.status}</span>
+      <span class="flex items-center gap-1.5 shrink-0">
+        ${pendingTags.has(a.tag) ? `<i class="fa-solid fa-cloud-arrow-up unsynced-dot" title="Not yet synced"></i>` : ""}
+        <span class="text-xs font-semibold px-2 py-1 rounded-full status-pill-${a.status}">${STATUS_LABEL[a.status] || a.status}</span>
+      </span>
     `;
     card.addEventListener("click", () => openAnimalDetail(a.tag));
     list.appendChild(card);
@@ -195,13 +261,11 @@ function openAddAnimal() {
   setNewSex(null);
   document.getElementById("newCastrated").checked = false;
   KuddeCamps.render(document.getElementById("newCampChips"), document.getElementById("newCamp"));
-  document.getElementById("addAnimalModal").classList.remove("hidden");
-  document.getElementById("addAnimalModal").classList.add("flex");
+  showModal("addAnimalModal");
 }
 
 function closeAddAnimal() {
-  document.getElementById("addAnimalModal").classList.add("hidden");
-  document.getElementById("addAnimalModal").classList.remove("flex");
+  hideModal("addAnimalModal");
 }
 
 let newSex = null;
@@ -243,6 +307,7 @@ async function confirmAddAnimal() {
     Kudde.setOffline(true);
     saved = { ...payload, status: "alive", _pending: true };
     await IDB.enqueue({ uuid: uuid(), kind: "animal", payload });
+    refreshSyncStatusPill().catch(() => {});
   }
 
   if (saved._pending && payload.camp) saved.camp = payload.camp;
@@ -276,8 +341,7 @@ async function openAnimalDetail(tag) {
 
   const eventsEl = document.getElementById("detailEvents");
   eventsEl.innerHTML = `<div class="text-slate-400">Loading...</div>`;
-  document.getElementById("animalDetailModal").classList.remove("hidden");
-  document.getElementById("animalDetailModal").classList.add("flex");
+  showModal("animalDetailModal");
 
   await renderAnimalPhotos();
 
@@ -318,7 +382,7 @@ async function renderAnimalPhotos() {
         <button class="delete-photo-btn absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-black/60 text-white text-xs flex items-center justify-center" data-id="${p.id}">
           <i class="fa-solid fa-xmark"></i>
         </button>`;
-      thumb.querySelector("img").addEventListener("click", () => window.open(p.url, "_blank"));
+      thumb.querySelector("img").addEventListener("click", () => openPhotoViewer(p.url));
       thumb.querySelector(".delete-photo-btn").addEventListener("click", () => deleteAnimalPhoto(p.id));
       el.appendChild(thumb);
     }
@@ -327,6 +391,16 @@ async function renderAnimalPhotos() {
     Kudde.setOffline(true);
     el.innerHTML = `<div class="text-slate-400 text-sm">Offline - photos unavailable</div>`;
   }
+}
+
+function openPhotoViewer(url) {
+  document.getElementById("photoViewerImg").src = url;
+  showModal("photoViewer");
+}
+
+function closePhotoViewer() {
+  hideModal("photoViewer");
+  document.getElementById("photoViewerImg").src = "";
 }
 
 async function deleteAnimalPhoto(id) {
@@ -379,8 +453,7 @@ function photoFormData(blob, clientUuid, type) {
 }
 
 function closeAnimalDetail() {
-  document.getElementById("animalDetailModal").classList.add("hidden");
-  document.getElementById("animalDetailModal").classList.remove("flex");
+  hideModal("animalDetailModal");
   activeTag = null;
 }
 
@@ -408,13 +481,11 @@ function openEventModal(kind) {
   if (cfg.showLocation) {
     KuddeCamps.render(document.getElementById("eventLocationChips"), document.getElementById("eventLocation"));
   }
-  document.getElementById("eventModal").classList.remove("hidden");
-  document.getElementById("eventModal").classList.add("flex");
+  showModal("eventModal");
 }
 
 function closeEventModal() {
-  document.getElementById("eventModal").classList.add("hidden");
-  document.getElementById("eventModal").classList.remove("flex");
+  hideModal("eventModal");
   activeEventKind = null;
 }
 
@@ -461,6 +532,7 @@ async function saveEvent(fields) {
     Kudde.setOffline(true);
     pending = true;
     await IDB.enqueue({ uuid: payload.client_uuid, kind: "event", payload });
+    refreshSyncStatusPill().catch(() => {});
   }
 
   // The cached animal follows the event straight away, by the same rules
@@ -595,14 +667,12 @@ function openCalving() {
   calfSex = null;
   document.getElementById("calfFemaleBtn").classList.remove("active");
   document.getElementById("calfMaleBtn").classList.remove("active");
-  document.getElementById("calvingModal").classList.remove("hidden");
-  document.getElementById("calvingModal").classList.add("flex");
+  showModal("calvingModal");
   document.getElementById("calfTag").focus();
 }
 
 function closeCalving() {
-  document.getElementById("calvingModal").classList.add("hidden");
-  document.getElementById("calvingModal").classList.remove("flex");
+  hideModal("calvingModal");
 }
 
 async function confirmCalving() {
@@ -682,8 +752,7 @@ async function openMoveModal() {
   renderMoveLocations();
   document.getElementById("moveLocationsView").classList.remove("hidden");
   document.getElementById("moveAnimalsView").classList.add("hidden");
-  document.getElementById("moveModal").classList.remove("hidden");
-  document.getElementById("moveModal").classList.add("flex");
+  showModal("moveModal");
 }
 
 function renderMoveLocations() {
@@ -739,8 +808,7 @@ function backToMoveLocations() {
 }
 
 function closeMoveModal() {
-  document.getElementById("moveModal").classList.add("hidden");
-  document.getElementById("moveModal").classList.remove("flex");
+  hideModal("moveModal");
   moveSelectedLocation = null;
 }
 
@@ -771,6 +839,7 @@ async function confirmMove() {
     Kudde.setOffline(true);
     pending = true;
     await IDB.enqueue({ uuid: payload.client_uuid, kind: "bulk_movement", payload });
+    refreshSyncStatusPill().catch(() => {});
   }
 
   // The cached herd follows the move at once; loadAnimals then replaces it
@@ -810,8 +879,7 @@ function openSessionSetup(kind) {
   }
   document.getElementById("sessionSetupView").classList.remove("hidden");
   document.getElementById("sessionCaptureView").classList.add("hidden");
-  document.getElementById("sessionModal").classList.remove("hidden");
-  document.getElementById("sessionModal").classList.add("flex");
+  showModal("sessionModal");
 }
 
 function startSession() {
@@ -842,8 +910,7 @@ function startSession() {
 }
 
 function closeSession() {
-  document.getElementById("sessionModal").classList.add("hidden");
-  document.getElementById("sessionModal").classList.remove("flex");
+  hideModal("sessionModal");
   const n = session ? session.log.length : 0;
   session = null;
   renderAnimalList();
@@ -921,6 +988,15 @@ function renderSessionLog() {
 // ---------------------------------------------------------------------
 
 let failedCount = 0;   // last known number of outbox entries the server refused
+let pendingTags = new Set();   // tags with something of their own still in the outbox
+
+// Which animals an outbox entry is about, for the marker on their rows.
+function outboxTags(entry) {
+  const p = entry.payload || {};
+  if (entry.kind === "bulk_movement") return p.tags || [];
+  if (entry.kind === "calving") return [p.dam_tag, p.calf && p.calf.tag].filter(Boolean);
+  return p.tag ? [p.tag] : [];
+}
 
 function updateSyncStatusPill(pendingCount) {
   const el = document.getElementById("syncStatus");
@@ -945,6 +1021,12 @@ async function refreshSyncStatusPill() {
   const [pending, failed] = await Promise.all([IDB.getPending(), IDB.getFailed()]);
   failedCount = failed.length;
   updateSyncStatusPill(pending.length);
+  // The rows' unsynced markers follow the outbox: redrawn only when the
+  // set of tags changes, so the 20s tick does not repaint a list the
+  // user is scrolling.
+  const tags = new Set([...pending, ...failed].flatMap(outboxTags));
+  const same = tags.size === pendingTags.size && [...tags].every((t) => pendingTags.has(t));
+  if (!same) { pendingTags = tags; renderAnimalList(); }
 }
 
 // One line naming what a stuck outbox entry was, in the user's terms - the
@@ -1113,6 +1195,7 @@ async function init() {
   document.getElementById("cancelAddAnimalBtn").addEventListener("click", closeAddAnimal);
   document.getElementById("confirmAddAnimalBtn").addEventListener("click", confirmAddAnimal);
   document.getElementById("closeDetailBtn").addEventListener("click", closeAnimalDetail);
+  document.getElementById("photoViewer").addEventListener("click", closePhotoViewer);
   document.getElementById("cancelEventBtn").addEventListener("click", closeEventModal);
   document.getElementById("confirmEventBtn").addEventListener("click", confirmEvent);
   document.getElementById("moveCampBtn").addEventListener("click", openMoveModal);
