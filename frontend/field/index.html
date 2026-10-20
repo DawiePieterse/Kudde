@@ -18,6 +18,8 @@
 <script src="../shared/ptr.js"></script>
 <script src="../shared/camps.js"></script>
 <script src="../shared/products.js"></script>
+<script src="../shared/vendor/jsqr/jsQR.js"></script>
+<script src="../shared/scan.js"></script>
 <script src="idb.js"></script>
 </head>
 <body class="bg-slate-100 min-h-screen app-field">
@@ -39,8 +41,14 @@
 
   <!-- Search / lookup -->
   <div class="bg-white rounded-xl p-3 shadow space-y-2">
-    <input id="searchInput" type="text" inputmode="search" placeholder="Search by tag or name"
-           class="w-full border border-slate-300 rounded-lg p-3 text-lg">
+    <div class="flex gap-2">
+      <input id="searchInput" type="text" inputmode="search" placeholder="Search by tag or name"
+             class="flex-1 min-w-0 border border-slate-300 rounded-lg p-3 text-lg">
+      <!-- Read the tag off a QR or barcode instead of typing it. -->
+      <button id="scanSearchBtn" type="button" class="btn-outline rounded-lg px-4 text-xl" aria-label="Scan a tag">
+        <i class="fa-solid fa-qrcode"></i>
+      </button>
+    </div>
     <!-- Which animals the list below shows. Alive by default: a dead or
          sold animal is still in the herd book, but after a few seasons a
          list that keeps them all is half clutter, and the Field list is
@@ -318,6 +326,20 @@
   </div>
 </div>
 
+<!-- Scanner: the camera, full screen, until a code is read or Cancel. -->
+<div id="scanModal" class="fixed inset-0 bg-black hidden flex-col z-[65]">
+  <video id="scanVideo" class="flex-1 w-full object-cover" muted playsinline></video>
+  <div class="absolute inset-0 pointer-events-none flex items-center justify-center">
+    <div class="w-64 h-64 border-4 border-white/70 rounded-2xl"></div>
+  </div>
+  <div class="absolute top-0 left-0 right-0 p-4 text-center text-white text-sm bg-gradient-to-b from-black/60" id="scanHint">
+    Point the camera at the tag's code
+  </div>
+  <div class="p-4 pb-8 bg-black/80">
+    <button id="cancelScanBtn" type="button" class="w-full rounded-xl py-3 bg-white/20 text-white font-semibold">Cancel</button>
+  </div>
+</div>
+
 <!-- Photo viewer. In-page, because window.open from an installed PWA on
      an iPhone leaves the app for Safari, and the way back is not obvious
      in an orchard. Tap anywhere to close. -->
@@ -370,8 +392,13 @@
         <button id="doneSessionBtn" class="rounded-lg px-4 py-2 bg-slate-100 font-semibold">Done</button>
       </div>
       <label class="text-xs text-slate-500">Tag *</label>
-      <input id="sessionTag" type="text" list="tagList" autocomplete="off" autocapitalize="characters" enterkeyhint="next"
-             class="w-full border border-slate-300 rounded-lg p-3 text-2xl font-bold mb-1">
+      <div class="flex gap-2 mb-1">
+        <input id="sessionTag" type="text" list="tagList" autocomplete="off" autocapitalize="characters" enterkeyhint="next"
+               class="flex-1 min-w-0 border border-slate-300 rounded-lg p-3 text-2xl font-bold">
+        <button id="scanSessionBtn" type="button" class="btn-outline rounded-lg px-4 text-xl" aria-label="Scan a tag">
+          <i class="fa-solid fa-qrcode"></i>
+        </button>
+      </div>
       <div id="sessionAnimal" class="text-sm text-slate-500 min-h-5 mb-2"></div>
       <div id="sessionValueRow">
         <label class="text-xs text-slate-500">Weight (kg) *</label>

@@ -642,7 +642,9 @@ down from the top of the list to re-fetch the herd and dashboard summary
 ### Searching and adding an animal
 
 The search box at the top filters the herd list live, by tag (matches
-anywhere) or name. **Add animal** opens a form for:
+anywhere) or name. The **QR button** beside it opens the camera: point it
+at a tag's QR code or barcode and the animal opens - see [Scanning a
+tag](#scanning-a-tag). **Add animal** opens a form for:
 
 - **Tag number** (required) - the ear tag number, and the animal's
   permanent identity. Kudde refuses a tag already in use, and refuses a
@@ -761,6 +763,24 @@ right), and the calf as a new animal - alive, with the cow as dam, born
 on that date, in that camp. Both land together or not at all: a calf tag
 already in use is refused and the cow gets no birth event either. Offline
 it is one entry in the outbox, replayed as one.
+
+### Scanning a tag
+
+Wherever a tag is typed - the search box, and the tag box in a weigh or
+treat session - a **QR button** beside it opens the camera full screen.
+Point it at the code on the tag; the moment it reads, the camera closes
+and the tag is filled in (in a session, the cursor moves on to the kg
+box). **Cancel** or the back button closes it without reading.
+
+What it reads: QR codes on every phone; on an Android phone also the
+common one-dimensional barcodes (Code 128, Code 39, EAN). An iPhone reads
+QR only. A code that is a web address ending in the tag is taken by its
+last part, so either style of printed label works.
+
+The camera needs the secure `https://...ts.net:8030/` address, which is
+the one every device already uses, and the browser asks once for camera
+permission. A refused permission is reported, not silently ignored, and
+can be changed in the phone's settings for the browser.
 
 ### Weigh and treat sessions
 

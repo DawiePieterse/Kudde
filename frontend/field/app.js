@@ -99,6 +99,7 @@ const MODAL_CLOSERS = {
   moveModal: () => closeMoveModal(),
   sessionModal: () => closeSession(),
   photoViewer: () => closePhotoViewer(),
+  scanModal: () => closeScanner(),
 };
 
 window.addEventListener("popstate", () => {
@@ -492,6 +493,60 @@ async function renderAnimalPhotos() {
     Kudde.setOffline(true);
     el.innerHTML = `<div class="text-slate-400 text-sm">Offline - photos unavailable</div>`;
   }
+}
+
+// ---------------------------------------------------------------------
+// Scanning a tag
+// ---------------------------------------------------------------------
+
+let scanTarget = null;   // "search" or "session": where the read tag goes
+
+async function openScanner(target) {
+  scanTarget = target;
+  showModal("scanModal");
+  document.getElementById("scanHint").textContent = "Point the camera at the tag's code";
+  try {
+    await KuddeScan.start(document.getElementById("scanVideo"), onScanned);
+  } catch (e) {
+    hideModal("scanModal");
+    Kudde.toast(e && e.message ? e.message : "Could not start the camera");
+  }
+}
+
+function closeScanner() {
+  KuddeScan.stop();
+  hideModal("scanModal");
+  document.getElementById("scanVideo").srcObject = null;
+}
+
+// What a read code means: the tag, as printed. A code that is a web
+// address ending in the tag (some printers make those) is taken by its
+// last part, so either style of label works.
+function tagFromCode(text) {
+  const raw = String(text || "").trim();
+  if (/^https?:\/\//i.test(raw)) {
+    const tail = raw.split(/[/?#]/).filter(Boolean).pop();
+    return tail ? decodeURIComponent(tail) : raw;
+  }
+  return raw;
+}
+
+function onScanned(text) {
+  const tag = tagFromCode(text);
+  closeScanner();
+  if (!tag) return;
+  const known = animals.find((a) => a.tag.toLowerCase() === tag.toLowerCase());
+  if (scanTarget === "session") {
+    document.getElementById("sessionTag").value = known ? known.tag : tag;
+    syncSessionEntry();
+    if (!known) { Kudde.toast(`No animal with tag ${tag}`); return; }
+    if (session && session.kind === "weight") document.getElementById("sessionValue").focus();
+    return;
+  }
+  document.getElementById("searchInput").value = known ? known.tag : tag;
+  renderAnimalList();
+  if (known) openAnimalDetail(known.tag);
+  else Kudde.toast(`No animal with tag ${tag} - add it?`);
 }
 
 function openPhotoViewer(url) {
@@ -1319,6 +1374,9 @@ async function init() {
   document.getElementById("confirmAddAnimalBtn").addEventListener("click", confirmAddAnimal);
   document.getElementById("closeDetailBtn").addEventListener("click", closeAnimalDetail);
   document.getElementById("photoViewer").addEventListener("click", closePhotoViewer);
+  document.getElementById("scanSearchBtn").addEventListener("click", () => { openScanner("search").catch(() => {}); });
+  document.getElementById("scanSessionBtn").addEventListener("click", () => { openScanner("session").catch(() => {}); });
+  document.getElementById("cancelScanBtn").addEventListener("click", closeScanner);
   document.getElementById("cancelEventBtn").addEventListener("click", closeEventModal);
   document.getElementById("confirmEventBtn").addEventListener("click", confirmEvent);
   document.getElementById("moveCampBtn").addEventListener("click", openMoveModal);
