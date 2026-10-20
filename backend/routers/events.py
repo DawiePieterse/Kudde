@@ -5,11 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import model_validator
 from sqlmodel import Session, SQLModel, select
 
+from campnames import ensure_camp, fold
 from db import get_session
-from models import Animal, AnimalStatus, Event, EventKind, Farm
-from routers.animals import normalise_tag
-from routers.settings import SINGLETON_ID as FARM_ID
-from weather import DailyWeather, fetch_daily_weather
+from farmweather import stamp_weather as _stamp_weather, weather_for as _weather_for
+from models import Animal, AnimalStatus, Camp, Event, EventKind
+from tags import normalise_tag, tag_sort_key
 
 router = APIRouter(prefix="/api", tags=["events"])
 
@@ -96,26 +96,15 @@ class BulkMovementCreate(SQLModel):
     client_uuid: Optional[str] = None
 
 
-def _weather_for(session: Session, on: date) -> Optional[DailyWeather]:
-    """The day's weather at the farm's position, or None when no position is
-    set or the lookup failed.
-
-    One place on purpose: a second way of recording an event is exactly how
-    weather quietly stops being carried, which is what the camp move below
-    did until it was pointed at this.
-    """
-    farm = session.get(Farm, FARM_ID)
-    if farm is None or farm.gps_lat is None or farm.gps_lng is None:
-        return None
-    return fetch_daily_weather(farm.gps_lat, farm.gps_lng, on)
-
-
-def _stamp_weather(event: Event, weather: Optional[DailyWeather]) -> None:
-    if weather is None:
-        return
-    event.weather_temp_max = weather.temp_max
-    event.weather_temp_min = weather.temp_min
-    event.weather_precipitation = weather.precipitation
+def _camp_location(session: Session, kind: EventKind, location: str) -> str:
+    """The location to store on an event: for the kinds that place an animal
+    in a camp, the spelling Settings holds for it (added there if new, see
+    campnames.ensure_camp). Other kinds keep whatever was typed - a
+    treatment's location, if ever set, is where it happened, not a camp."""
+    location = (location or "").strip()
+    if not location or kind not in _LOCATION_EVENT_KINDS:
+        return location
+    return ensure_camp(session, location).name
 
 
 def _animal_by_tag(session: Session, tag: str) -> Animal:
@@ -150,7 +139,8 @@ def create_event(payload: EventCreate, session: Session = Depends(get_session)):
 
     animal = _animal_by_tag(session, payload.tag)
     event = Event(animal_id=animal.id, kind=payload.kind, event_date=payload.event_date,
-                   value=payload.value, note=payload.note, location=payload.location,
+                   value=payload.value, note=payload.note,
+                   location=_camp_location(session, payload.kind, payload.location),
                    client_uuid=payload.client_uuid)
 
     # After the client_uuid check above, never before it: a replay of an
@@ -202,6 +192,9 @@ def create_bulk_movement(payload: BulkMovementCreate, session: Session = Depends
     if not payload.tags:
         raise HTTPException(400, "At least one tag is required")
     animals = [_animal_by_tag(session, tag) for tag in payload.tags]
+    location = _camp_location(session, EventKind.movement, payload.location)
+    if not location:
+        raise HTTPException(422, "a camp move needs the camp it is moving to")
 
     already = {}
     if payload.client_uuid:
@@ -221,7 +214,7 @@ def create_bulk_movement(payload: BulkMovementCreate, session: Session = Depends
             events.append(already[key])
             continue
         event = Event(animal_id=animal.id, kind=EventKind.movement,
-                      event_date=payload.event_date, location=payload.location,
+                      event_date=payload.event_date, location=location,
                       note=payload.note, client_uuid=key)
         events.append(event)
         fresh.append(event)
@@ -243,21 +236,50 @@ def create_bulk_movement(payload: BulkMovementCreate, session: Session = Depends
 
 @router.get("/locations")
 def list_locations(session: Session = Depends(get_session)):
-    """Every camp/location currently holding at least one alive animal,
-    grouped with who's there - what the "move whole camp" picker uses so a
-    location can be selected without typing out every tag in it."""
+    """Every camp the farm has, in Settings order, with the alive animals in
+    each - what the "move whole camp" picker shows, so a camp can be chosen
+    without typing out every tag in it.
+
+    Three things are in the list that were not before camps were managed:
+
+    - a camp with nobody in it, so the farmer sees the whole farm and not
+      just the camps that happen to hold an animal (the apps grey it out);
+    - a camp that is on the events but was never set up (older records, or
+      a device replaying an outbox from before the list existed), grouped
+      under its own name after the managed ones, so no animal disappears
+      from the picker;
+    - last, a row with location None for the alive animals that have no
+      camp recorded at all, so they can be moved INTO a camp - before this
+      an animal with no history could never be picked.
+    """
     latest_location = _current_locations(session)
     alive = session.exec(select(Animal).where(Animal.status == AnimalStatus.alive)).all()
-    grouped: dict = {}
+    camps = session.exec(select(Camp).order_by(Camp.sort_order, Camp.id)).all()
+    by_key = {fold(c.name): c for c in camps if not c.archived}
+
+    grouped: dict = {fold(c.name): [] for c in by_key.values()}
+    names = {key: camp.name for key, camp in by_key.items()}
+    unplaced = []
     for animal in alive:
         location = latest_location.get(animal.id)
         if not location:
+            unplaced.append({"tag": animal.tag, "name": animal.name})
             continue
-        grouped.setdefault(location, []).append({"tag": animal.tag, "name": animal.name})
-    return [
-        {"location": location, "animals": sorted(members, key=lambda a: a["tag"])}
-        for location, members in sorted(grouped.items())
-    ]
+        key = fold(location)
+        names.setdefault(key, location.strip())
+        grouped.setdefault(key, []).append({"tag": animal.tag, "name": animal.name})
+
+    def row(key):
+        return {"location": names[key],
+                "animals": sorted(grouped[key], key=lambda a: tag_sort_key(a["tag"]))}
+
+    managed = [row(fold(c.name)) for c in by_key.values()]
+    stray = [row(key) for key in sorted(k for k in grouped if k not in by_key)]
+    rows = managed + stray
+    if unplaced:
+        rows.append({"location": None,
+                     "animals": sorted(unplaced, key=lambda a: tag_sort_key(a["tag"]))})
+    return rows
 
 
 @router.get("/animals/{tag}/events")

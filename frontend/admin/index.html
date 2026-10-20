@@ -21,6 +21,7 @@
 <link rel="stylesheet" href="../shared/styles.css">
 <script src="../shared/api.js"></script>
 <script src="../shared/ptr.js"></script>
+<script src="../shared/camps.js"></script>
 <script src="../shared/vendor/leaflet/leaflet.js"></script>
 </head>
 <body class="bg-slate-100 min-h-screen">
@@ -112,6 +113,8 @@
             <th class="p-3">Breed</th>
             <th class="p-3">Sex</th>
             <th class="p-3">Birth date</th>
+            <th class="p-3">Camp</th>
+            <th class="p-3">Last weight</th>
             <th class="p-3">Status</th>
           </tr>
         </thead>
@@ -139,6 +142,33 @@
           <input id="fPhoneNumber" type="tel" class="w-full border border-slate-300 rounded-lg p-2">
         </div>
       </div>
+    </div>
+
+    <!-- Camps save as they are changed, not with the Save settings button
+         below: each row is its own thing, and a rename or an archive that
+         waited on a button at the bottom of a map was the kind that gets
+         lost. -->
+    <div class="bg-white rounded-xl p-3 shadow">
+      <div class="text-sm font-semibold text-slate-500 mb-1">Camps</div>
+      <div class="text-xs text-slate-400 mb-2">
+        The camps the apps offer when an animal is moved, added, or born, in this order.
+        Renaming a camp changes nothing already recorded. A camp with animals in it can't be
+        archived; archiving hides it from the pickers without touching its history.
+        A camp typed with Other out in the field appears here on its own.
+      </div>
+      <div id="campsList" class="divide-y divide-slate-100"></div>
+      <div id="campsEmpty" class="hidden text-slate-400 text-sm py-2">No camps yet</div>
+      <div class="flex gap-2 mt-2">
+        <input id="newCampName" type="text" placeholder="New camp" autocomplete="off"
+               class="flex-1 border border-slate-300 rounded-lg p-2">
+        <button id="addCampBtn" class="kudde-btn-primary rounded-lg px-4 py-2 font-semibold whitespace-nowrap">
+          <i class="fa-solid fa-plus"></i> Add camp
+        </button>
+      </div>
+      <details id="archivedCamps" class="mt-2 text-sm hidden">
+        <summary class="text-slate-500 cursor-pointer">Archived camps</summary>
+        <div id="archivedCampsList" class="divide-y divide-slate-100 mt-1"></div>
+      </details>
     </div>
 
     <div class="bg-white rounded-xl p-3 shadow">
@@ -171,9 +201,16 @@
 
 </div>
 
+<!-- Every modal backdrop is a flex box with the panel on m-auto, NOT
+     items-center/justify-center with my-6 on the panel. Centring with
+     align-items clips the top of a panel taller than the viewport and
+     nothing can scroll it back: with the keyboard up on a phone (about
+     480px visible) the Add animal title and the required Tag box sat 60px
+     above the top edge, unreachable. Auto margins centre a panel that fits
+     and collapse to zero when it doesn't, so the top is always there. -->
 <!-- Add / edit animal modal -->
-<div id="animalModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-40 overflow-y-auto">
-  <div class="bg-white rounded-xl p-5 w-full max-w-lg my-6">
+<div id="animalModal" class="fixed inset-0 bg-black/50 hidden p-4 z-40 overflow-y-auto">
+  <div class="bg-white rounded-xl p-5 w-full max-w-lg m-auto">
     <div class="flex items-center justify-between mb-3">
       <div class="font-bold text-lg" id="animalModalTitle">Add animal</div>
       <span id="animalModalStatusPill" class="text-xs font-semibold px-2 py-1 rounded-full hidden"></span>
@@ -210,6 +247,11 @@
           <option value="dead">Dead</option>
           <option value="sold">Sold</option>
         </select>
+      </div>
+      <div id="fCampRow" class="col-span-2">
+        <label class="text-xs text-slate-500">Camp</label>
+        <div id="fCampChips" class="chip-row"></div>
+        <input id="fCamp" type="text" placeholder="Camp name" class="w-full border border-slate-300 rounded-lg p-2">
       </div>
       <div>
         <label class="text-xs text-slate-500">Sire tag</label>
@@ -259,13 +301,17 @@
           <label class="text-xs text-slate-500">Date</label>
           <input id="newEventDate" type="date" class="w-full border border-slate-300 rounded-lg p-2">
         </div>
-        <div>
-          <label class="text-xs text-slate-500">Value (kg, weight only)</label>
+        <!-- Shown by kind (see syncEventForm): a kg box on a treatment and
+             a location on a weighing read as fields someone forgot to fill. -->
+        <div id="newEventValueRow" class="col-span-2">
+          <label class="text-xs text-slate-500">Weight (kg)</label>
           <input id="newEventValue" type="number" step="0.1" class="w-full border border-slate-300 rounded-lg p-2">
+          <div id="newEventValueHint" class="text-xs text-slate-500 min-h-4"></div>
         </div>
-        <div>
-          <label class="text-xs text-slate-500">Location (movement only)</label>
-          <input id="newEventLocation" type="text" class="w-full border border-slate-300 rounded-lg p-2">
+        <div id="newEventLocationRow" class="col-span-2 hidden">
+          <label class="text-xs text-slate-500">Camp</label>
+          <div id="newEventLocationChips" class="chip-row"></div>
+          <input id="newEventLocation" type="text" placeholder="Camp name" class="w-full border border-slate-300 rounded-lg p-2">
         </div>
         <div class="col-span-2">
           <label class="text-xs text-slate-500">Note</label>
@@ -280,13 +326,13 @@
 </div>
 
 <!-- Move camp modal -->
-<div id="moveModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-40 overflow-y-auto">
-  <div class="bg-white rounded-xl p-5 w-full max-w-sm my-6">
+<div id="moveModal" class="fixed inset-0 bg-black/50 hidden p-4 z-40 overflow-y-auto">
+  <div class="bg-white rounded-xl p-5 w-full max-w-sm m-auto">
     <div id="moveLocationsView">
       <div class="font-bold text-lg mb-1">Move camp</div>
       <div class="text-xs text-slate-500 mb-3">Pick the camp everyone is moving from</div>
       <div id="moveLocationsList" class="space-y-2 max-h-80 overflow-y-auto"></div>
-      <div id="moveLocationsEmpty" class="hidden text-slate-400 text-sm py-4 text-center">No animals have a recorded location yet</div>
+      <div id="moveLocationsEmpty" class="hidden text-slate-400 text-sm py-4 text-center">No camps yet - add them under Settings</div>
       <button id="cancelMoveBtn" class="w-full rounded-lg py-2 bg-slate-100 mt-3">Cancel</button>
     </div>
     <div id="moveAnimalsView" class="hidden">
@@ -295,8 +341,9 @@
       <div id="moveAnimalsList" class="space-y-1 max-h-40 overflow-y-auto mb-3 border border-slate-200 rounded-lg p-2"></div>
       <label class="text-xs text-slate-500">Date *</label>
       <input id="moveDate" type="date" class="w-full border border-slate-300 rounded-lg p-2 mb-2">
-      <label class="text-xs text-slate-500">New location *</label>
-      <input id="moveToLocation" type="text" class="w-full border border-slate-300 rounded-lg p-2 mb-2">
+      <label class="text-xs text-slate-500">To camp *</label>
+      <div id="moveToChips" class="chip-row"></div>
+      <input id="moveToLocation" type="text" placeholder="Camp name" class="w-full border border-slate-300 rounded-lg p-2 mb-2">
       <label class="text-xs text-slate-500">Note</label>
       <textarea id="moveNote" rows="2" class="w-full border border-slate-300 rounded-lg p-2 mb-2"></textarea>
       <div class="flex gap-2 mt-3">

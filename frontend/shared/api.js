@@ -156,6 +156,15 @@ const Kudde = {
     return Kudde.EVENT_LABEL[key] || (key ? key.charAt(0).toUpperCase() + key.slice(1) : "");
   },
 
+  // Tag order as a farmer reads it: B2 before B10, A20 before A100. Plain
+  // localeCompare sorts digit by digit, so B10 landed between B1 and B2 and
+  // a herd numbered past nine never read in order. The server sorts the
+  // same way (routers/animals.py tag_sort_key); both lists must agree or a
+  // row moves between the Field list and the Move camp picker.
+  compareTags(a, b) {
+    return String(a || "").localeCompare(String(b || ""), Kudde.LOCALE, { numeric: true, sensitivity: "base" });
+  },
+
   // "Today" as a YYYY-MM-DD string in local time - what a <input type=date>
   // wants. toISOString() would give the UTC date, wrong before dawn.
   localDateStr(d = new Date()) {

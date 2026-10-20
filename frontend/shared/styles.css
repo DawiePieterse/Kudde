@@ -98,6 +98,37 @@ body {
 .action-btn:active { background: #f1f5f9; }
 .action-btn i { font-size: 1.4rem; }
 
+/* Two-way switch (Field list: Alive / All). A segmented control rather
+   than a checkbox because the two states need naming - "show dead and
+   sold" ticked or unticked reads as a question, "Alive | All" reads as
+   the answer. */
+.seg-btn { padding: 0.45rem 0; border-radius: 0.4rem; color: #475569; }
+.seg-btn.active { background: white; color: var(--boord-blue); box-shadow: 0 1px 2px rgba(0,0,0,0.12); }
+
+/* Camp chips (shared/camps.js). Big enough for a gloved thumb, and the
+   chosen one is filled blue rather than outlined so it reads from arm's
+   length in sun. The Other chip is dashed: it is the way out of the list,
+   not a camp. */
+.chip-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem; }
+.chip {
+  padding: 0.55rem 0.9rem; border-radius: 999px; font-size: 0.95rem; font-weight: 600;
+  background: #f1f5f9; color: #1e293b; border: 1px solid #cbd5e1;
+}
+.chip.active { background: var(--boord-blue); color: white; border-color: var(--boord-blue); }
+.chip-other { border-style: dashed; color: #475569; }
+.chip-other.active { color: white; }
+
+.btn-outline { background: white; color: #1e293b; border: 2px solid #cbd5e1; }
+.btn-outline:active { background: #f1f5f9; }
+
+/* The "Need weighing" count doubles as a filter button. */
+.count-btn.active { background: #dbeafe; }
+.count-btn.active .text-slate-500 { color: var(--boord-blue); }
+
+/* A weight that is a long way from the last one. Amber, not red: it is a
+   question, not a refusal - the animal may really have lost that much. */
+.hint-warn { color: #b45309; font-weight: 600; }
+
 .tab-btn { flex: 1; text-align: center; padding: 0.6rem 0; font-size: 0.8rem; white-space: nowrap; padding-left: 1rem; padding-right: 1rem; }
 .tab-btn.active { color: var(--boord-blue); font-weight: 600; border-bottom: 3px solid var(--boord-blue); }
 

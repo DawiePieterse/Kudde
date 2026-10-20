@@ -2,7 +2,7 @@
 // network blip. Unlike the field app there's no offline data queue here -
 // see app.js for why - this only caches the UI shell itself.
 const CACHE_PREFIX = "kudde-admin-";
-const CACHE = "kudde-admin-v3";
+const CACHE = "kudde-admin-v6";
 const REVALIDATE_TIMEOUT_MS = 10000;
 const SHELL = [
   "./",
@@ -15,6 +15,7 @@ const SHELL = [
   "../shared/styles.css",
   "../shared/api.js",
   "../shared/ptr.js",
+  "../shared/camps.js",
   "../shared/tailwind.js",
   "../shared/vendor/fontawesome/css/all.min.css",
   // See the field worker: the stylesheet without the font is a screenful of

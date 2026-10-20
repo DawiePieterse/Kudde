@@ -16,6 +16,7 @@
 <link rel="stylesheet" href="../shared/styles.css">
 <script src="../shared/api.js"></script>
 <script src="../shared/ptr.js"></script>
+<script src="../shared/camps.js"></script>
 <script src="idb.js"></script>
 </head>
 <body class="bg-slate-100 min-h-screen">
@@ -39,6 +40,16 @@
   <div class="bg-white rounded-xl p-3 shadow space-y-2">
     <input id="searchInput" type="text" inputmode="search" placeholder="Search by tag or name"
            class="w-full border border-slate-300 rounded-lg p-3 text-lg">
+    <!-- Which animals the list below shows. Alive by default: a dead or
+         sold animal is still in the herd book, but after a few seasons a
+         list that keeps them all is half clutter, and the Field list is
+         read standing next to the live ones. Typing in the search box
+         searches every animal regardless, so a sold animal's tag still
+         finds it. -->
+    <div class="flex rounded-lg bg-slate-100 p-1 text-sm font-semibold" role="group" aria-label="Which animals to list">
+      <button id="filterAliveBtn" type="button" class="seg-btn active flex-1">Alive</button>
+      <button id="filterAllBtn" type="button" class="seg-btn flex-1">All</button>
+    </div>
     <div class="grid grid-cols-2 gap-2">
       <button id="addAnimalBtn" class="kudde-btn-primary rounded-xl py-3 font-bold flex items-center justify-center gap-2">
         <i class="fa-solid fa-plus"></i> Add animal
@@ -47,18 +58,32 @@
         <i class="fa-solid fa-arrows-turn-right"></i> Move camp
       </button>
     </div>
+    <!-- Sessions: the crush-side way of working. One animal after another,
+         tag and number, Save and next - instead of search, tap, Weight,
+         type, Save, Close for each of forty head. -->
+    <div class="grid grid-cols-2 gap-2">
+      <button id="weighSessionBtn" class="btn-outline rounded-xl py-3 font-bold flex items-center justify-center gap-2">
+        <i class="fa-solid fa-weight-scale event-icon-weight"></i> Weigh session
+      </button>
+      <button id="treatSessionBtn" class="btn-outline rounded-xl py-3 font-bold flex items-center justify-center gap-2">
+        <i class="fa-solid fa-syringe event-icon-treatment"></i> Treat session
+      </button>
+    </div>
   </div>
 
   <!-- Herd summary -->
+  <!-- Both counts come from the cached herd, not the server, so they are
+       right offline and the moment something is recorded. "Need weighing"
+       is a button: tapping it turns the list into that worklist. -->
   <div class="bg-white rounded-xl p-3 shadow flex justify-around text-center">
     <div>
       <div class="text-2xl font-bold" id="countAlive">0</div>
       <div class="text-xs text-slate-500">Alive</div>
     </div>
-    <div>
+    <button id="needsWeighingBtn" type="button" class="count-btn rounded-lg px-3 -my-1 py-1">
       <div class="text-2xl font-bold" id="countNeedsWeighing">0</div>
-      <div class="text-xs text-slate-500">Need weighing</div>
-    </div>
+      <div class="text-xs text-slate-500">Need weighing <i class="fa-solid fa-filter text-[10px]"></i></div>
+    </button>
   </div>
 
   <!-- Animal list -->
@@ -66,9 +91,16 @@
   <div id="emptyState" class="hidden text-center text-slate-400 text-sm py-6">No animals yet</div>
 </div>
 
+<!-- Every modal backdrop is a flex box with the panel on m-auto, NOT
+     items-center/justify-center with my-6 on the panel. Centring with
+     align-items clips the top of a panel taller than the viewport and
+     nothing can scroll it back: with the keyboard up on a phone (about
+     480px visible) the Add animal title and the required Tag box sat 60px
+     above the top edge, unreachable. Auto margins centre a panel that fits
+     and collapse to zero when it doesn't, so the top is always there. -->
 <!-- Add animal modal -->
-<div id="addAnimalModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-40 overflow-y-auto">
-  <div class="bg-white rounded-xl p-5 w-full max-w-sm my-6">
+<div id="addAnimalModal" class="fixed inset-0 bg-black/50 hidden p-4 z-40 overflow-y-auto">
+  <div class="bg-white rounded-xl p-5 w-full max-w-sm m-auto">
     <div class="font-bold text-lg mb-3">Add animal</div>
     <label class="text-xs text-slate-500">Tag number *</label>
     <input id="newTag" type="text" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2" autocomplete="off">
@@ -83,6 +115,11 @@
     <input id="newBreed" type="text" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
     <label class="text-xs text-slate-500">Birth date</label>
     <input id="newBirthDate" type="date" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+    <!-- Where it is now. Recorded as its first movement event, so the new
+         animal is in a camp from the start and Move camp can see it. -->
+    <label class="text-xs text-slate-500">Camp</label>
+    <div id="newCampChips" class="chip-row"></div>
+    <input id="newCamp" type="text" placeholder="Camp name" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2" autocomplete="off">
     <div class="grid grid-cols-2 gap-2 mb-2">
       <div>
         <label class="text-xs text-slate-500">Sire tag</label>
@@ -101,8 +138,8 @@
 </div>
 
 <!-- Animal detail modal -->
-<div id="animalDetailModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-40 overflow-y-auto">
-  <div class="bg-white rounded-xl p-5 w-full max-w-sm my-6">
+<div id="animalDetailModal" class="fixed inset-0 bg-black/50 hidden p-4 z-40 overflow-y-auto">
+  <div class="bg-white rounded-xl p-5 w-full max-w-sm m-auto">
     <div class="flex items-start justify-between mb-3">
       <div>
         <div class="font-bold text-xl" id="detailTag"></div>
@@ -136,19 +173,23 @@
 </div>
 
 <!-- Record event modal -->
-<div id="eventModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-50 overflow-y-auto">
-  <div class="bg-white rounded-xl p-5 w-full max-w-sm my-6">
+<div id="eventModal" class="fixed inset-0 bg-black/50 hidden p-4 z-50 overflow-y-auto">
+  <div class="bg-white rounded-xl p-5 w-full max-w-sm m-auto">
     <div class="font-bold text-lg mb-3" id="eventModalTitle">Record event</div>
     <label class="text-xs text-slate-500">Date *</label>
     <input id="eventDate" type="date" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
     <div id="eventValueRow" class="hidden">
       <label class="text-xs text-slate-500" id="eventValueLabel">Weight (kg)</label>
       <input id="eventValue" type="number" inputmode="decimal" step="0.1"
-             class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+             class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-1">
+      <!-- The last weighing, and the gain since, so 412 typed as 41 is
+           noticed here and not in a report six months on. -->
+      <div id="eventValueHint" class="text-xs text-slate-500 min-h-4 mb-2"></div>
     </div>
     <div id="eventLocationRow" class="hidden">
-      <label class="text-xs text-slate-500">Camp / location</label>
-      <input id="eventLocation" type="text" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+      <label class="text-xs text-slate-500">Camp</label>
+      <div id="eventLocationChips" class="chip-row"></div>
+      <input id="eventLocation" placeholder="Camp name" type="text" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
     </div>
     <label class="text-xs text-slate-500">Note</label>
     <textarea id="eventNote" rows="2" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2"></textarea>
@@ -160,13 +201,13 @@
 </div>
 
 <!-- Move camp modal -->
-<div id="moveModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-40 overflow-y-auto">
-  <div class="bg-white rounded-xl p-5 w-full max-w-sm my-6">
+<div id="moveModal" class="fixed inset-0 bg-black/50 hidden p-4 z-40 overflow-y-auto">
+  <div class="bg-white rounded-xl p-5 w-full max-w-sm m-auto">
     <div id="moveLocationsView">
       <div class="font-bold text-lg mb-1">Move camp</div>
       <div class="text-xs text-slate-500 mb-3">Pick the camp everyone is moving from</div>
       <div id="moveLocationsList" class="space-y-2 max-h-80 overflow-y-auto"></div>
-      <div id="moveLocationsEmpty" class="hidden text-slate-400 text-sm py-4 text-center">No animals have a recorded location yet</div>
+      <div id="moveLocationsEmpty" class="hidden text-slate-400 text-sm py-4 text-center">No camps yet - set them up in Admin, Settings, or type one when recording a move</div>
       <button id="cancelMoveBtn" class="w-full rounded-lg py-3 bg-slate-100 mt-3">Cancel</button>
     </div>
     <div id="moveAnimalsView" class="hidden">
@@ -175,8 +216,9 @@
       <div id="moveAnimalsList" class="space-y-1 max-h-40 overflow-y-auto mb-3 border border-slate-200 rounded-lg p-2"></div>
       <label class="text-xs text-slate-500">Date *</label>
       <input id="moveDate" type="date" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
-      <label class="text-xs text-slate-500">New location *</label>
-      <input id="moveToLocation" type="text" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+      <label class="text-xs text-slate-500">To camp *</label>
+      <div id="moveToChips" class="chip-row"></div>
+      <input id="moveToLocation" type="text" placeholder="Camp name" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
       <label class="text-xs text-slate-500">Note</label>
       <textarea id="moveNote" rows="2" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2"></textarea>
       <div class="flex gap-2 mt-3">
@@ -186,6 +228,50 @@
     </div>
   </div>
 </div>
+
+<!-- Session modal: weigh or treat one animal after another -->
+<div id="sessionModal" class="fixed inset-0 bg-black/50 hidden p-4 z-40 overflow-y-auto">
+  <div class="bg-white rounded-xl p-5 w-full max-w-sm m-auto">
+    <div id="sessionSetupView">
+      <div class="font-bold text-lg mb-1" id="sessionSetupTitle">Weigh session</div>
+      <div class="text-xs text-slate-500 mb-3">One animal after another: type the tag, the number, Save and next. Every save is recorded straight away, online or not.</div>
+      <label class="text-xs text-slate-500">Date *</label>
+      <input id="sessionDate" type="date" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+      <div id="sessionNoteRow" class="hidden">
+        <label class="text-xs text-slate-500">Treatment (recorded on every animal)</label>
+        <input id="sessionNote" type="text" placeholder="e.g. Ivermectin 5 ml" class="w-full border border-slate-300 rounded-lg p-3 text-lg mb-2">
+      </div>
+      <div class="flex gap-2 mt-3">
+        <button id="cancelSessionBtn" class="flex-1 rounded-lg py-3 bg-slate-100">Cancel</button>
+        <button id="startSessionBtn" class="flex-1 kudde-btn-primary rounded-lg py-3 font-semibold">Start</button>
+      </div>
+    </div>
+    <div id="sessionCaptureView" class="hidden">
+      <div class="flex items-start justify-between mb-3">
+        <div>
+          <div class="font-bold text-lg" id="sessionTitle">Weighing</div>
+          <div class="text-xs text-slate-500" id="sessionSub">0 recorded</div>
+        </div>
+        <button id="doneSessionBtn" class="rounded-lg px-4 py-2 bg-slate-100 font-semibold">Done</button>
+      </div>
+      <label class="text-xs text-slate-500">Tag *</label>
+      <input id="sessionTag" type="text" list="tagList" autocomplete="off" autocapitalize="characters" enterkeyhint="next"
+             class="w-full border border-slate-300 rounded-lg p-3 text-2xl font-bold mb-1">
+      <div id="sessionAnimal" class="text-sm text-slate-500 min-h-5 mb-2"></div>
+      <div id="sessionValueRow">
+        <label class="text-xs text-slate-500">Weight (kg) *</label>
+        <input id="sessionValue" type="number" inputmode="decimal" step="0.1" enterkeyhint="done"
+               class="w-full border border-slate-300 rounded-lg p-3 text-2xl font-bold mb-1">
+        <div id="sessionValueHint" class="text-xs text-slate-500 min-h-4 mb-2"></div>
+      </div>
+      <button id="sessionSaveBtn" class="w-full kudde-btn-primary rounded-xl py-4 text-lg font-bold mt-1">Save and next</button>
+      <div class="text-sm font-semibold text-slate-500 mt-4 mb-1">This session</div>
+      <div id="sessionLog" class="space-y-1 text-sm max-h-40 overflow-y-auto"></div>
+    </div>
+  </div>
+</div>
+<!-- Every alive tag, for the session's tag box to complete from. -->
+<datalist id="tagList"></datalist>
 
 <script src="app.js"></script>
 </body>

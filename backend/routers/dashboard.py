@@ -5,6 +5,7 @@ from sqlmodel import Session, func, select
 
 from db import get_session
 from models import Animal, AnimalStatus, Event, EventKind
+from tags import tag_sort_key
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -44,10 +45,13 @@ def dashboard(session: Session = Depends(get_session)):
         .group_by(Event.animal_id)
     ).all())
     alive = session.exec(select(Animal).where(Animal.status == AnimalStatus.alive)).all()
-    needs_weighing = [
-        a for a in alive
-        if last_weighed.get(a.id) is None or last_weighed[a.id] < cutoff
-    ]
+    # In tag order (see tag_sort_key): this is a worklist the farmer walks
+    # down at the crush, so it has to read in the order the animals come
+    # through, not whatever order SQLite found the rows in.
+    needs_weighing = sorted(
+        (a for a in alive if last_weighed.get(a.id) is None or last_weighed[a.id] < cutoff),
+        key=lambda a: tag_sort_key(a.tag),
+    )
 
     return {
         "herd_counts": herd_counts,

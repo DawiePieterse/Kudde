@@ -19,9 +19,38 @@ const EVENT_FIELD_CONFIG = {
 const STATUS_LABEL = { alive: "Alive", dead: "Dead", sold: "Sold" };
 
 let animals = [];       // last known full herd, from the server or the IDB cache
-let dashboard = null;   // last known /api/dashboard payload (server-only - not cached)
 let activeTag = null;   // tag shown in the detail modal, for the event modal to act on
 let activeEventKind = null;
+
+// Which animals the list shows: "alive" (the default), "all" (dead and sold
+// too), or "weigh" (alive and overdue a weighing - the worklist). Remembered
+// per device, so the one person who wants the full book on their phone sets
+// it once. A search term overrides it: a farmer typing a tag wants that
+// animal found whether or not it has left the herd.
+const LIST_FILTER_KEY = "kudde_field_list";
+let listFilter = "alive";
+try {
+  const saved = localStorage.getItem(LIST_FILTER_KEY);
+  if (["alive", "all", "weigh"].includes(saved)) listFilter = saved;
+} catch (_) { /* private mode: default */ }
+
+// Past this many days without a weighing an alive animal needs one. Mirrors
+// _STALE_WEIGHT_DAYS in backend/routers/dashboard.py; change both. Worked
+// out here, from the cached herd, so the count and the worklist are right
+// offline and the moment a weighing is saved - not after the next sync.
+const STALE_WEIGHT_DAYS = 182;
+
+function daysSince(dateStr) {
+  const d = Kudde._parseDate(dateStr);
+  if (!d) return null;
+  return Math.floor((Date.now() - d.getTime()) / 86400000);
+}
+
+function needsWeighing(a) {
+  if (a.status !== "alive") return false;
+  const days = daysSince(a.last_weight_date);
+  return days === null || days > STALE_WEIGHT_DAYS;
+}
 
 function uuid() {
   return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -35,22 +64,34 @@ function renderAnimalList() {
   const needle = document.getElementById("searchInput").value.trim().toLowerCase();
   const filtered = needle
     ? animals.filter((a) => a.tag.toLowerCase().includes(needle) || (a.name || "").toLowerCase().includes(needle))
-    : animals;
+    : listFilter === "all" ? animals
+    : listFilter === "weigh" ? animals.filter(needsWeighing)
+    : animals.filter((a) => a.status === "alive");
+
+  document.getElementById("filterAliveBtn").classList.toggle("active", listFilter === "alive");
+  document.getElementById("filterAllBtn").classList.toggle("active", listFilter === "all");
+  document.getElementById("needsWeighingBtn").classList.toggle("active", listFilter === "weigh");
 
   const list = document.getElementById("animalList");
   list.innerHTML = "";
-  document.getElementById("emptyState").classList.toggle("hidden", animals.length > 0);
+  const empty = document.getElementById("emptyState");
+  empty.classList.toggle("hidden", filtered.length > 0);
+  // Three different nothings, each with its own way out.
+  empty.textContent = !animals.length ? "No animals yet"
+    : needle ? "No animal matches"
+    : listFilter === "weigh" ? "Nothing needs weighing"
+    : "No live animals - tap All to see dead and sold";
 
   // Sorted on a copy: with no search term `filtered` IS `animals`, and
   // Array.sort works in place - so rendering the list was quietly reordering
   // the module's own copy of the herd.
-  for (const a of [...filtered].sort((x, y) => x.tag.localeCompare(y.tag))) {
+  for (const a of [...filtered].sort((x, y) => Kudde.compareTags(x.tag, y.tag))) {
     const card = document.createElement("div");
     card.className = "bg-white rounded-xl p-3 shadow flex items-center justify-between";
     card.innerHTML = `
       <div>
         <div class="font-bold text-lg">${escapeHtml(a.tag)} ${a.name ? `<span class="font-normal text-slate-500">- ${escapeHtml(a.name)}</span>` : ""}</div>
-        <div class="text-xs text-slate-500">${escapeHtml(a.breed || "")} ${a.breed ? "&middot;" : ""} ${a.sex === "male" ? "Male" : "Female"}</div>
+        <div class="text-xs text-slate-500">${rowDetail(a)}</div>
       </div>
       <span class="text-xs font-semibold px-2 py-1 rounded-full status-pill-${a.status}">${STATUS_LABEL[a.status] || a.status}</span>
     `;
@@ -59,11 +100,54 @@ function renderAnimalList() {
   }
 }
 
+// The second line of a row: where the animal is and when it was last
+// weighed - what is wanted while walking the camp - rather than the breed
+// and sex, which never change and are on the detail card.
+function rowDetail(a) {
+  const camp = a.camp ? escapeHtml(a.camp) : "No camp";
+  let weighed;
+  if (a.last_weight == null) {
+    weighed = "Not weighed";
+  } else {
+    const days = daysSince(a.last_weight_date);
+    weighed = `${Kudde.fmtKg(a.last_weight)}${days === null ? "" : ` ${days}d ago`}`;
+  }
+  const overdue = needsWeighing(a) ? ` <i class="fa-solid fa-triangle-exclamation text-amber-500"></i>` : "";
+  return `${camp} &middot; ${weighed}${overdue}`;
+}
+
 function renderSummary() {
-  document.getElementById("countAlive").textContent =
-    dashboard ? dashboard.total_alive : animals.filter((a) => a.status === "alive").length;
-  document.getElementById("countNeedsWeighing").textContent =
-    dashboard ? dashboard.needs_weighing.length : "-";
+  document.getElementById("countAlive").textContent = animals.filter((a) => a.status === "alive").length;
+  document.getElementById("countNeedsWeighing").textContent = animals.filter(needsWeighing).length;
+}
+
+// What to show under a kg box for `animal`, given what has been typed so
+// far: the last weighing, the change since, and a nudge when the number
+// is a long way off. Returns {text, warn}.
+function weightHint(animal, typed) {
+  if (!animal) return { text: "", warn: false };
+  if (animal.last_weight == null) return { text: "First weighing", warn: false };
+  const days = daysSince(animal.last_weight_date);
+  let text = `Last ${Kudde.fmtKg(animal.last_weight)} on ${Kudde.fmtDate(animal.last_weight_date)}`
+    + (days === null ? "" : ` (${days} day${days === 1 ? "" : "s"} ago)`);
+  const value = parseFloat(typed);
+  if (!(value > 0)) return { text, warn: false };
+  const diff = value - animal.last_weight;
+  const pct = Math.abs(diff) / animal.last_weight;
+  const sign = diff >= 0 ? "+" : "-";
+  text += ` \u00b7 ${sign}${Math.abs(diff).toLocaleString(Kudde.LOCALE, { maximumFractionDigits: 1 })} kg`;
+  if (days > 0) text += ` (${sign}${(Math.abs(diff) / days).toLocaleString(Kudde.LOCALE, { maximumFractionDigits: 2 })} kg/day)`;
+  // Three tenths either way is beyond any gain or loss a season produces;
+  // 412 typed as 41, or the previous animal's weight left in the box, is
+  // not. A question, never a refusal: the number may be right.
+  if (pct > 0.3) text += ` \u00b7 check: ${Math.round(pct * 100)}% ${diff < 0 ? "lighter" : "heavier"} than last time`;
+  return { text, warn: pct > 0.3 };
+}
+
+function showWeightHint(el, animal, typed) {
+  const { text, warn } = weightHint(animal, typed);
+  el.textContent = text;
+  el.classList.toggle("hint-warn", warn);
 }
 
 function escapeHtml(s) {
@@ -80,6 +164,8 @@ function eventIcon(kind) {
 // ---------------------------------------------------------------------
 
 async function loadAnimals() {
+  // The camp list rides along with the herd: same moment, same fallback.
+  await KuddeCamps.load();
   try {
     animals = await Kudde.api("/api/animals");
     Kudde.setOffline(false);
@@ -93,27 +179,16 @@ async function loadAnimals() {
   renderSummary();
 }
 
-async function loadDashboard() {
-  try {
-    dashboard = await Kudde.api("/api/dashboard");
-    Kudde.setOffline(false);
-  } catch (e) {
-    if (!Kudde.isNetworkError(e)) throw e;
-    Kudde.setOffline(true);
-    dashboard = null; // no cached copy - the summary falls back to counting `animals`
-  }
-  renderSummary();
-}
-
 // ---------------------------------------------------------------------
 // Add animal
 // ---------------------------------------------------------------------
 
 function openAddAnimal() {
-  for (const id of ["newTag", "newName", "newBreed", "newBirthDate", "newSireTag", "newDamTag"]) {
+  for (const id of ["newTag", "newName", "newBreed", "newBirthDate", "newSireTag", "newDamTag", "newCamp"]) {
     document.getElementById(id).value = "";
   }
   document.getElementById("newSex").value = "female";
+  KuddeCamps.render(document.getElementById("newCampChips"), document.getElementById("newCamp"));
   document.getElementById("addAnimalModal").classList.remove("hidden");
   document.getElementById("addAnimalModal").classList.add("flex");
 }
@@ -136,7 +211,9 @@ async function confirmAddAnimal() {
     birth_date: document.getElementById("newBirthDate").value || null,
     sire_tag: document.getElementById("newSireTag").value.trim() || null,
     dam_tag: document.getElementById("newDamTag").value.trim() || null,
+    camp: document.getElementById("newCamp").value.trim() || null,
   };
+  const newCamp = payload.camp && !KuddeCamps.isKnown(payload.camp) ? payload.camp : null;
 
   let saved;
   try {
@@ -149,12 +226,14 @@ async function confirmAddAnimal() {
     await IDB.enqueue({ uuid: uuid(), kind: "animal", payload });
   }
 
+  if (saved._pending && payload.camp) saved.camp = payload.camp;
   animals.push(saved);
   await IDB.cacheAnimals(animals);
   renderAnimalList();
-  await loadDashboard();
+  renderSummary();
   closeAddAnimal();
-  Kudde.toast(saved._pending ? "Saved on this device - will sync when online" : "Animal added");
+  Kudde.toast(saved._pending ? "Saved on this device - will sync when online"
+    : newCamp ? `Animal added - new camp ${newCamp} added to Settings` : "Animal added");
 }
 
 // ---------------------------------------------------------------------
@@ -292,8 +371,14 @@ function openEventModal(kind) {
   document.getElementById("eventLocation").value = "";
   document.getElementById("eventNote").value = "";
   document.getElementById("eventValueRow").classList.toggle("hidden", !cfg.showValue);
-  if (cfg.showValue) document.getElementById("eventValueLabel").textContent = cfg.valueLabel;
+  if (cfg.showValue) {
+    document.getElementById("eventValueLabel").textContent = cfg.valueLabel;
+    showWeightHint(document.getElementById("eventValueHint"), animals.find((a) => a.tag === activeTag), "");
+  }
   document.getElementById("eventLocationRow").classList.toggle("hidden", !cfg.showLocation);
+  if (cfg.showLocation) {
+    KuddeCamps.render(document.getElementById("eventLocationChips"), document.getElementById("eventLocation"));
+  }
   document.getElementById("eventModal").classList.remove("hidden");
   document.getElementById("eventModal").classList.add("flex");
 }
@@ -305,6 +390,53 @@ function closeEventModal() {
 }
 
 const STATUS_ON_EVENT = { death: "dead", sale: "sold" };
+
+// Records one event, now if the server answers and into the outbox if not,
+// and brings the cached animal into line with it. Shared by the event
+// modal and the sessions, so there is one place that knows the rules.
+// Returns {pending} or null if the server refused it (already toasted).
+async function saveEvent(fields) {
+  const payload = {
+    ...fields,
+    // Stamped at capture, not at send, and kept for the replay: the server
+    // records an event once per client_uuid. A request that times out (8s)
+    // may well have landed, and this is the only thing that can tell the
+    // retry apart from a genuine second event - the same animal really can
+    // be treated twice on one day.
+    client_uuid: uuid(),
+  };
+
+  let pending = false;
+  try {
+    await Kudde.api("/api/events", { method: "POST", body: payload });
+    Kudde.setOffline(false);
+  } catch (e) {
+    if (!Kudde.isNetworkError(e)) { Kudde.toast(Kudde.errorDetail(e)); return null; }
+    Kudde.setOffline(true);
+    pending = true;
+    await IDB.enqueue({ uuid: payload.client_uuid, kind: "event", payload });
+  }
+
+  // The cached animal follows the event straight away, by the same rules
+  // the server applies, so the list, the counts and the next hint read
+  // right immediately, online or not: a death or sale flips the status, a
+  // weighing becomes the last weight, a move or birth sets the camp.
+  const animal = animals.find((a) => a.tag === payload.tag);
+  if (animal) {
+    const newStatus = STATUS_ON_EVENT[payload.kind];
+    if (newStatus) animal.status = newStatus;
+    if (payload.kind === "weight" && payload.value > 0
+        && (!animal.last_weight_date || payload.event_date >= animal.last_weight_date)) {
+      animal.last_weight = payload.value;
+      animal.last_weight_date = payload.event_date;
+    }
+    if ((payload.kind === "movement" || payload.kind === "birth") && payload.location) {
+      animal.camp = payload.location;
+    }
+    await IDB.cacheAnimals(animals);
+  }
+  return { pending };
+}
 
 async function confirmEvent() {
   const eventDate = document.getElementById("eventDate").value;
@@ -340,38 +472,19 @@ async function confirmEvent() {
     value,
     location: document.getElementById("eventLocation").value.trim(),
     note: document.getElementById("eventNote").value.trim(),
-    // Stamped at capture, not at send, and kept for the replay: the server
-    // records an event once per client_uuid. A request that times out (8s)
-    // may well have landed, and this is the only thing that can tell the
-    // retry apart from a genuine second event - the same animal really can
-    // be treated twice on one day.
-    client_uuid: uuid(),
   };
 
-  let pending = false;
-  try {
-    await Kudde.api("/api/events", { method: "POST", body: payload });
-    Kudde.setOffline(false);
-  } catch (e) {
-    if (!Kudde.isNetworkError(e)) { Kudde.toast(Kudde.errorDetail(e)); return; }
-    Kudde.setOffline(true);
-    pending = true;
-    await IDB.enqueue({ uuid: payload.client_uuid, kind: "event", payload });
-  }
+  const result = await saveEvent(payload);
+  if (!result) return;
+  const { pending } = result;
 
-  // Optimistic local status flip, same rule the server applies - so the list
-  // and the detail card read right immediately, online or not.
-  const newStatus = STATUS_ON_EVENT[activeEventKind];
-  if (newStatus) {
-    const animal = animals.find((a) => a.tag === activeTag);
-    if (animal) animal.status = newStatus;
-    await IDB.cacheAnimals(animals);
-  }
-
+  const newCamp = payload.location && !KuddeCamps.isKnown(payload.location) ? payload.location : null;
   closeEventModal();
   renderAnimalList();
-  await loadDashboard();
-  Kudde.toast(pending ? "Saved on this device - will sync when online" : "Event recorded");
+  renderSummary();
+  if (newCamp && !pending) await KuddeCamps.load();
+  Kudde.toast(pending ? "Saved on this device - will sync when online"
+    : newCamp ? `Event recorded - new camp ${newCamp} added to Settings` : "Event recorded");
   if (document.getElementById("animalDetailModal").classList.contains("flex")) {
     openAnimalDetail(activeTag || document.getElementById("detailTag").textContent);
   }
@@ -407,24 +520,36 @@ async function openMoveModal() {
 function renderMoveLocations() {
   const list = document.getElementById("moveLocationsList");
   document.getElementById("moveLocationsEmpty").classList.toggle("hidden", moveLocations.length > 0);
-  list.innerHTML = moveLocations.map((loc) => `
-    <button class="w-full text-left bg-slate-50 hover:bg-slate-100 rounded-lg p-3 flex items-center justify-between move-location-btn" data-location="${escapeHtml(loc.location)}">
-      <span class="font-semibold">${escapeHtml(loc.location)}</span>
-      <span class="text-xs text-slate-500">${loc.animals.length} animal${loc.animals.length === 1 ? "" : "s"}</span>
-    </button>`).join("");
+  // Every camp, empty ones included, so the list reads as the whole farm.
+  // An empty camp cannot be moved FROM, so it is shown greyed rather than
+  // left out. The row with no location is the animals that have never
+  // been placed anywhere - the way to move them INTO a camp.
+  list.innerHTML = moveLocations.map((loc, i) => {
+    const n = loc.animals.length;
+    const label = loc.location === null ? "No camp yet" : loc.location;
+    return `
+    <button class="w-full text-left rounded-lg p-3 flex items-center justify-between move-location-btn ${n ? "bg-slate-50 hover:bg-slate-100" : "bg-slate-50 opacity-50"}"
+            data-index="${i}" ${n ? "" : "disabled"}>
+      <span class="font-semibold ${loc.location === null ? "italic" : ""}">${escapeHtml(label)}</span>
+      <span class="text-xs text-slate-500">${n ? `${n} animal${n === 1 ? "" : "s"}` : "empty"}</span>
+    </button>`;
+  }).join("");
   list.querySelectorAll(".move-location-btn").forEach((btn) => {
-    btn.addEventListener("click", () => openMoveAnimals(btn.dataset.location));
+    btn.addEventListener("click", () => openMoveAnimals(parseInt(btn.dataset.index, 10)));
   });
 }
 
-function openMoveAnimals(location) {
-  moveSelectedLocation = moveLocations.find((l) => l.location === location);
+function openMoveAnimals(index) {
+  moveSelectedLocation = moveLocations[index];
   if (!moveSelectedLocation) return;
 
-  document.getElementById("moveFromLocation").textContent = location;
+  document.getElementById("moveFromLocation").textContent = moveSelectedLocation.location === null
+    ? "no camp" : moveSelectedLocation.location;
   document.getElementById("moveDate").value = Kudde.localDateStr();
   document.getElementById("moveToLocation").value = "";
   document.getElementById("moveNote").value = "";
+  KuddeCamps.render(document.getElementById("moveToChips"), document.getElementById("moveToLocation"),
+                    { exclude: moveSelectedLocation.location });
   renderMoveAnimals();
   document.getElementById("moveLocationsView").classList.add("hidden");
   document.getElementById("moveAnimalsView").classList.remove("hidden");
@@ -456,7 +581,8 @@ async function confirmMove() {
   const eventDate = document.getElementById("moveDate").value;
   if (!eventDate) { Kudde.toast("Date is required"); return; }
   const location = document.getElementById("moveToLocation").value.trim();
-  if (!location) { Kudde.toast("New location is required"); return; }
+  if (!location) { Kudde.toast("Pick the camp they are moving to"); return; }
+  const newCamp = KuddeCamps.isKnown(location) ? null : location;
 
   const payload = {
     tags, event_date: eventDate, location,
@@ -478,12 +604,134 @@ async function confirmMove() {
     await IDB.enqueue({ uuid: payload.client_uuid, kind: "bulk_movement", payload });
   }
 
+  // The cached herd follows the move at once; loadAnimals then replaces it
+  // with the server's copy when there is one.
+  for (const a of animals) if (tags.includes(a.tag)) a.camp = location;
+  await IDB.cacheAnimals(animals);
   closeMoveModal();
-  await loadAnimals();
-  await loadDashboard();
+  await loadAnimals();   // reloads the camp list too, so a new camp has its chip next time
   Kudde.toast(pending
     ? `Saved on this device - will sync ${tags.length} moves when online`
-    : `Moved ${tags.length} animal${tags.length === 1 ? "" : "s"} to ${location}`);
+    : `Moved ${tags.length} animal${tags.length === 1 ? "" : "s"} to ${location}`
+      + (newCamp ? " (new camp added to Settings)" : ""));
+}
+
+// ---------------------------------------------------------------------
+// Sessions: weigh or treat one animal after another
+// ---------------------------------------------------------------------
+//
+// A weighing day is forty head through a crush, and the one-animal flow
+// (search, tap, Weight, type, Save, Close) is six steps a head. A session
+// is two: tag, number, Save and next. Each save is an ordinary event
+// through saveEvent(), so it lands or queues exactly as a single one does
+// and nothing new is needed on the server or in the outbox.
+
+let session = null;   // {kind, date, note, log: [{tag, value, pending}]} while one is open
+
+function openSessionSetup(kind) {
+  session = { kind, date: Kudde.localDateStr(), note: "", log: [] };
+  document.getElementById("sessionSetupTitle").textContent = kind === "weight" ? "Weigh session" : "Treat session";
+  document.getElementById("sessionDate").value = session.date;
+  document.getElementById("sessionNote").value = "";
+  document.getElementById("sessionNoteRow").classList.toggle("hidden", kind !== "treatment");
+  document.getElementById("sessionSetupView").classList.remove("hidden");
+  document.getElementById("sessionCaptureView").classList.add("hidden");
+  document.getElementById("sessionModal").classList.remove("hidden");
+  document.getElementById("sessionModal").classList.add("flex");
+}
+
+function startSession() {
+  const date = document.getElementById("sessionDate").value;
+  if (!date) { Kudde.toast("Date is required"); return; }
+  session.date = date;
+  session.note = document.getElementById("sessionNote").value.trim();
+  if (session.kind === "treatment" && !session.note) { Kudde.toast("Say what the treatment is"); return; }
+
+  document.getElementById("sessionTitle").textContent = session.kind === "weight" ? "Weighing" : `Treating: ${session.note}`;
+  document.getElementById("sessionValueRow").classList.toggle("hidden", session.kind !== "weight");
+  document.getElementById("sessionSaveBtn").textContent = session.kind === "weight" ? "Save and next" : "Record and next";
+  // Every alive tag, so the tag box completes after a character or two.
+  document.getElementById("tagList").innerHTML = animals
+    .filter((a) => a.status === "alive")
+    .map((a) => `<option value="${escapeHtml(a.tag)}"></option>`).join("");
+  document.getElementById("sessionSetupView").classList.add("hidden");
+  document.getElementById("sessionCaptureView").classList.remove("hidden");
+  resetSessionEntry();
+  renderSessionLog();
+}
+
+function closeSession() {
+  document.getElementById("sessionModal").classList.add("hidden");
+  document.getElementById("sessionModal").classList.remove("flex");
+  const n = session ? session.log.length : 0;
+  session = null;
+  renderAnimalList();
+  renderSummary();
+  if (n) Kudde.toast(`Session done - ${n} recorded`);
+}
+
+function resetSessionEntry() {
+  document.getElementById("sessionTag").value = "";
+  document.getElementById("sessionValue").value = "";
+  document.getElementById("sessionAnimal").textContent = "";
+  document.getElementById("sessionValueHint").textContent = "";
+  document.getElementById("sessionTag").focus();
+}
+
+// The animal the tag box names, ignoring case, or null.
+function sessionAnimal() {
+  const typed = document.getElementById("sessionTag").value.trim().toLowerCase();
+  if (!typed) return null;
+  return animals.find((a) => a.tag.toLowerCase() === typed) || null;
+}
+
+function syncSessionEntry() {
+  const animal = sessionAnimal();
+  const who = document.getElementById("sessionAnimal");
+  if (!animal) {
+    who.textContent = document.getElementById("sessionTag").value.trim() ? "No animal with that tag" : "";
+  } else {
+    who.textContent = [animal.name, animal.camp, animal.status !== "alive" ? STATUS_LABEL[animal.status] : null]
+      .filter(Boolean).join(" \u00b7 ");
+  }
+  if (session.kind === "weight") {
+    showWeightHint(document.getElementById("sessionValueHint"), animal, document.getElementById("sessionValue").value);
+  }
+}
+
+async function saveSessionEntry() {
+  const animal = sessionAnimal();
+  if (!animal) { Kudde.toast("No animal with that tag"); document.getElementById("sessionTag").focus(); return; }
+  let value = null;
+  if (session.kind === "weight") {
+    value = parseFloat(document.getElementById("sessionValue").value) || null;
+    if (!(value > 0)) { Kudde.toast("Enter the weight in kg"); document.getElementById("sessionValue").focus(); return; }
+  }
+  // The same tag twice in one session is usually the previous animal still
+  // in the box, not a second weighing - asked, not refused.
+  const before = session.log.find((e) => e.tag === animal.tag);
+  if (before && !confirm(`${animal.tag} is already in this session${before.value != null ? ` (${Kudde.fmtKg(before.value)})` : ""}. Record it again?`)) return;
+
+  const result = await saveEvent({
+    tag: animal.tag, kind: session.kind, event_date: session.date,
+    value, location: "", note: session.note,
+  });
+  if (!result) return;
+  session.log.unshift({ tag: animal.tag, value, pending: result.pending });
+  renderSessionLog();
+  resetSessionEntry();
+  refreshSyncStatusPill().catch(() => {});
+}
+
+function renderSessionLog() {
+  const n = session.log.length;
+  document.getElementById("sessionSub").textContent = `${n} recorded`;
+  document.getElementById("sessionLog").innerHTML = n ? session.log.map((e) => `
+    <div class="flex items-center justify-between py-1 border-b border-slate-100 last:border-0">
+      <span class="font-semibold">${escapeHtml(e.tag)}</span>
+      <span>${e.value != null ? Kudde.fmtKg(e.value) : ""}</span>
+      <span class="text-xs ${e.pending ? "text-amber-600" : "text-slate-400"}">${e.pending ? "saved on phone" : "saved"}</span>
+    </div>`).join("") : `<div class="text-slate-400">Nothing yet</div>`;
 }
 
 // ---------------------------------------------------------------------
@@ -622,8 +870,7 @@ async function trySync() {
 
     await refreshSyncStatusPill();
     await loadAnimals();
-    await loadDashboard();
-    if (activeTag && document.getElementById("animalDetailModal").classList.contains("flex")) {
+      if (activeTag && document.getElementById("animalDetailModal").classList.contains("flex")) {
       await renderAnimalPhotos();
     }
   } finally {
@@ -641,6 +888,39 @@ async function init() {
   Kudde.onOfflineChange = () => { refreshSyncStatusPill().catch(() => {}); };
 
   document.getElementById("searchInput").addEventListener("input", renderAnimalList);
+  const setListFilter = (value) => {
+    listFilter = value;
+    try { localStorage.setItem(LIST_FILTER_KEY, value); } catch (_) { /* not remembered, still applied */ }
+    renderAnimalList();
+  };
+  document.getElementById("filterAliveBtn").addEventListener("click", () => setListFilter("alive"));
+  document.getElementById("filterAllBtn").addEventListener("click", () => setListFilter("all"));
+  document.getElementById("needsWeighingBtn").addEventListener("click",
+    () => setListFilter(listFilter === "weigh" ? "alive" : "weigh"));
+  document.getElementById("eventValue").addEventListener("input", () => {
+    showWeightHint(document.getElementById("eventValueHint"), animals.find((a) => a.tag === activeTag),
+                   document.getElementById("eventValue").value);
+  });
+
+  document.getElementById("weighSessionBtn").addEventListener("click", () => openSessionSetup("weight"));
+  document.getElementById("treatSessionBtn").addEventListener("click", () => openSessionSetup("treatment"));
+  document.getElementById("cancelSessionBtn").addEventListener("click", closeSession);
+  document.getElementById("startSessionBtn").addEventListener("click", startSession);
+  document.getElementById("doneSessionBtn").addEventListener("click", closeSession);
+  document.getElementById("sessionSaveBtn").addEventListener("click", () => { saveSessionEntry().catch(() => {}); });
+  document.getElementById("sessionTag").addEventListener("input", syncSessionEntry);
+  document.getElementById("sessionValue").addEventListener("input", syncSessionEntry);
+  // Enter walks the two boxes the way a keypad user expects: tag, then kg,
+  // then save - a treat session has no kg box, so Enter on the tag saves.
+  document.getElementById("sessionTag").addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (session.kind === "weight") document.getElementById("sessionValue").focus();
+    else saveSessionEntry().catch(() => {});
+  });
+  document.getElementById("sessionValue").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); saveSessionEntry().catch(() => {}); }
+  });
   document.getElementById("syncStatus").addEventListener("click", () => { reviewFailedEntries().catch(() => {}); });
   document.getElementById("addAnimalBtn").addEventListener("click", openAddAnimal);
   document.getElementById("cancelAddAnimalBtn").addEventListener("click", closeAddAnimal);
@@ -666,11 +946,10 @@ async function init() {
     if (file && activeTag) await uploadAnimalPhoto(activeTag, file);
   });
 
-  KWPTR.attach(async () => { await loadAnimals(); await loadDashboard(); await trySync(); });
+  KWPTR.attach(async () => { await loadAnimals(); await trySync(); });
   window.addEventListener("online", trySync);
 
   await loadAnimals();
-  await loadDashboard();
   await trySync();
   setInterval(trySync, 20000);
 }

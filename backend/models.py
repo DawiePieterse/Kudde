@@ -104,6 +104,30 @@ class Farm(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class Camp(SQLModel, table=True):
+    """A camp (paddock) the farm can put animals in - the list Settings
+    manages and the chips the apps offer.
+
+    Deliberately NOT what an event points at. Event.location stays the text
+    that was typed, and an animal's current camp is still derived from its
+    history (routers/events._current_locations): this table only decides
+    what the pickers show and what spelling a typed name snaps to
+    (campnames.py). Renaming a camp therefore rewrites nothing and archiving
+    one hides it from the pickers without touching a single event, and a
+    farm's existing records need no conversion - the first migration seeds
+    this table from the locations already on file.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(index=True, unique=True)
+    # The order the farmer wants them listed - the way they lie on the farm,
+    # not alphabetically.
+    sort_order: int = 0
+    # Archived rather than deleted: the name still appears in every event
+    # that ever recorded it, so the row stays to say what it was.
+    archived: bool = False
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class AnimalPhoto(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     # The id the capturing device gave this photo, before it had ever reached
