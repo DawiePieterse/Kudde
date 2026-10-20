@@ -157,9 +157,15 @@ body {
   .herd-table thead { display: none; }
   .herd-table tr { display: flex; flex-wrap: wrap; align-items: flex-start; padding: 0.5rem 0.75rem; }
   .herd-table td { display: inline-block; padding: 0.1rem 0.6rem 0.1rem 0; border: 0; }
-  .herd-table td.herd-tag { flex: 1 1 auto; display: block; width: 100%; font-size: 1.05rem; padding-bottom: 0.2rem; }
-  .herd-table tr { position: relative; }
-  .herd-table td.herd-status { position: absolute; right: 0.75rem; top: 0.5rem; padding: 0; text-align: right; }
+  /* Tag and status share the first line (status pushed right); a
+     zero-height full-width pseudo-element then breaks the line, and the
+     labelled fragments follow. Flex order, not absolute positioning: a
+     status cell two lines tall (pill plus withdrawal) used to sit on top
+     of the fragments beneath it. */
+  .herd-table td.herd-tag { order: 0; flex: 1 1 auto; font-size: 1.05rem; padding-bottom: 0.2rem; }
+  .herd-table td.herd-status { order: 1; margin-left: auto; padding: 0; text-align: right; }
+  .herd-table tr::after { content: ""; order: 2; flex-basis: 100%; height: 0; }
+  .herd-table td[data-label] { order: 3; }
   .herd-table td.herd-name, .herd-table td.herd-empty { display: none; }
   .herd-table td[data-label]::before { content: attr(data-label) " "; color: #94a3b8; font-size: 0.7rem; }
 }
