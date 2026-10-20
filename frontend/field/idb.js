@@ -2,7 +2,7 @@
 //
 // One object store ("outbox") holding every create-animal / record-event
 // request made while this device couldn't reach the server, each an
-// {uuid, kind: "animal"|"event"|"bulk_movement"|"photo", payload, synced,
+// {uuid, kind: "animal"|"event"|"bulk_movement"|"photo"|"calving", payload, synced,
 // timestamp}, plus {status: "failed", error, failedAt} once the server has
 // refused it (see trySync in app.js).
 //

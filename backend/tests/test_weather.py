@@ -1,7 +1,8 @@
 """Stamping each event with the weather it happened in.
 
 Nothing here reaches the network: the lookup is stubbed at the seam
-routers.events uses, and weather.py's own tests stub httpx instead. A farm
+farmweather.py uses (the one place every event, from either router, gets
+its weather), and weather.py's own tests stub httpx instead. A farm
 server is behind Tailscale and often has no internet at all, which is the
 same reason fetch_daily_weather never raises.
 """
@@ -9,7 +10,7 @@ from datetime import date, timedelta
 
 import pytest
 
-import routers.events as events_router
+import farmweather
 import weather
 from tests.conftest import RECENTLY
 
@@ -23,7 +24,7 @@ def looked_up(monkeypatch):
         calls.append((lat, lng, on))
         return weather.DailyWeather(temp_max=31.2, temp_min=12.0, precipitation=4.5)
 
-    monkeypatch.setattr(events_router, "fetch_daily_weather", fake)
+    monkeypatch.setattr(farmweather, "fetch_daily_weather", fake)
     return calls
 
 
@@ -60,7 +61,7 @@ def test_no_farm_position_means_no_lookup_and_no_weather(client, looked_up):
 def test_a_failed_lookup_still_records_the_event(client, monkeypatch):
     """Weather is a nicety; the event is the record. Open-Meteo being down,
     or the farm having no internet, must never cost a treatment."""
-    monkeypatch.setattr(events_router, "fetch_daily_weather", lambda *a: None)
+    monkeypatch.setattr(farmweather, "fetch_daily_weather", lambda *a: None)
     _at(client)
     client.post("/api/animals", json={"tag": "A1", "sex": "female"})
     r = client.post("/api/events", json={"tag": "A1", "kind": "weight",

@@ -54,6 +54,11 @@ class Animal(SQLModel, table=True):
     # when it points at nothing in this database.
     sire_tag: Optional[str] = None
     dam_tag: Optional[str] = None
+    # A castrated male is a steer, not a bull, and a farmer counts them
+    # apart. The only thing about an animal's class that cannot be worked
+    # out from what is already recorded (see classes.py) - sex, age and
+    # whether she has calved are all there already.
+    castrated: bool = False
     status: AnimalStatus = AnimalStatus.alive
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -80,6 +85,16 @@ class Event(SQLModel, table=True):
     value: Optional[float] = None  # weight in kg for a "weight" event; unused by other kinds
     note: str = ""
     location: str = ""  # camp/paddock name - mainly for "movement" events
+    # A treatment's own fields. What was given and how much, and how many
+    # days the animal may not be sold or slaughtered afterwards - the one
+    # compliance question a small farm actually gets asked. All optional:
+    # a treatment recorded as a note alone is still a treatment, and every
+    # treatment from before these columns existed has nothing here. The
+    # withdrawal is stored as the days given on the label, not as an end
+    # date, so a corrected event date keeps it right.
+    product: str = ""
+    dose: str = ""
+    withdrawal_days: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     # Filled in automatically from Open-Meteo for the farm's position on
     # event_date (see weather.py) - null if the farm has no position set or
@@ -102,6 +117,30 @@ class Farm(SQLModel, table=True):
     gps_lat: Optional[float] = None
     gps_lng: Optional[float] = None
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Camp(SQLModel, table=True):
+    """A camp (paddock) the farm can put animals in - the list Settings
+    manages and the chips the apps offer.
+
+    Deliberately NOT what an event points at. Event.location stays the text
+    that was typed, and an animal's current camp is still derived from its
+    history (routers/events._current_locations): this table only decides
+    what the pickers show and what spelling a typed name snaps to
+    (campnames.py). Renaming a camp therefore rewrites nothing and archiving
+    one hides it from the pickers without touching a single event, and a
+    farm's existing records need no conversion - the first migration seeds
+    this table from the locations already on file.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(index=True, unique=True)
+    # The order the farmer wants them listed - the way they lie on the farm,
+    # not alphabetically.
+    sort_order: int = 0
+    # Archived rather than deleted: the name still appears in every event
+    # that ever recorded it, so the row stays to say what it was.
+    archived: bool = False
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class AnimalPhoto(SQLModel, table=True):

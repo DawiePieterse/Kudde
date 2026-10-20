@@ -1,15 +1,15 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from sqlmodel import Session, SQLModel, select
 
+from campnames import ensure_camp, fold
 from db import get_session
-from models import Animal, AnimalStatus, Event, EventKind, Farm
-from routers.animals import normalise_tag
-from routers.settings import SINGLETON_ID as FARM_ID
-from weather import DailyWeather, fetch_daily_weather
+from farmweather import stamp_weather as _stamp_weather, weather_for as _weather_for
+from models import Animal, AnimalStatus, Camp, Event, EventKind
+from tags import normalise_tag, tag_sort_key
 
 router = APIRouter(prefix="/api", tags=["events"])
 
@@ -63,9 +63,32 @@ class EventCreate(SQLModel):
     value: Optional[float] = None
     note: str = ""
     location: str = ""
+    # Treatment only (see models.Event). Sent empty by the other kinds and
+    # by any outbox entry captured before these existed.
+    product: str = ""
+    dose: str = ""
+    withdrawal_days: Optional[int] = None
     # The id the capturing device gave this event. Optional: the admin app
     # has no outbox and sends none. See create_event().
     client_uuid: Optional[str] = None
+
+    @field_validator("withdrawal_days")
+    @classmethod
+    def _withdrawal_is_days(cls, value: Optional[int]) -> Optional[int]:
+        if value is not None and value < 0:
+            raise ValueError("withdrawal days cannot be negative")
+        return value
+
+    @model_validator(mode="after")
+    def _treatment_fields_belong_to_treatments(self) -> "EventCreate":
+        """Dropped, not refused, on any other kind: a form that carried a
+        stale product across a kind change should not fail the save."""
+        if self.kind is not EventKind.treatment:
+            self.product, self.dose, self.withdrawal_days = "", "", None
+        else:
+            self.product = " ".join(self.product.split())
+            self.dose = " ".join(self.dose.split())
+        return self
 
     @model_validator(mode="after")
     def _weight_events_carry_a_weight(self) -> "EventCreate":
@@ -96,26 +119,15 @@ class BulkMovementCreate(SQLModel):
     client_uuid: Optional[str] = None
 
 
-def _weather_for(session: Session, on: date) -> Optional[DailyWeather]:
-    """The day's weather at the farm's position, or None when no position is
-    set or the lookup failed.
-
-    One place on purpose: a second way of recording an event is exactly how
-    weather quietly stops being carried, which is what the camp move below
-    did until it was pointed at this.
-    """
-    farm = session.get(Farm, FARM_ID)
-    if farm is None or farm.gps_lat is None or farm.gps_lng is None:
-        return None
-    return fetch_daily_weather(farm.gps_lat, farm.gps_lng, on)
-
-
-def _stamp_weather(event: Event, weather: Optional[DailyWeather]) -> None:
-    if weather is None:
-        return
-    event.weather_temp_max = weather.temp_max
-    event.weather_temp_min = weather.temp_min
-    event.weather_precipitation = weather.precipitation
+def _camp_location(session: Session, kind: EventKind, location: str) -> str:
+    """The location to store on an event: for the kinds that place an animal
+    in a camp, the spelling Settings holds for it (added there if new, see
+    campnames.ensure_camp). Other kinds keep whatever was typed - a
+    treatment's location, if ever set, is where it happened, not a camp."""
+    location = (location or "").strip()
+    if not location or kind not in _LOCATION_EVENT_KINDS:
+        return location
+    return ensure_camp(session, location).name
 
 
 def _animal_by_tag(session: Session, tag: str) -> Animal:
@@ -150,7 +162,10 @@ def create_event(payload: EventCreate, session: Session = Depends(get_session)):
 
     animal = _animal_by_tag(session, payload.tag)
     event = Event(animal_id=animal.id, kind=payload.kind, event_date=payload.event_date,
-                   value=payload.value, note=payload.note, location=payload.location,
+                   value=payload.value, note=payload.note,
+                   location=_camp_location(session, payload.kind, payload.location),
+                   product=payload.product, dose=payload.dose,
+                   withdrawal_days=payload.withdrawal_days,
                    client_uuid=payload.client_uuid)
 
     # After the client_uuid check above, never before it: a replay of an
@@ -186,26 +201,20 @@ def _batch_member_uuid(client_uuid: str, animal_id: int) -> str:
     return f"{client_uuid}:{animal_id}"
 
 
-@router.post("/events/movement/bulk")
-def create_bulk_movement(payload: BulkMovementCreate, session: Session = Depends(get_session)):
-    """Record the same movement for every listed animal in one call, so a
-    camp move lands as one save instead of one request per tag. Tags are
-    resolved up front - if any one of them doesn't exist, nothing is
-    written, rather than moving half a camp and failing partway through.
+def _record_batch(session: Session, animals: list, client_uuid: Optional[str],
+                  event_date: date, build) -> list:
+    """The same event for every animal in `animals`, written once however
+    many times the batch is replayed.
 
-    Idempotent on client_uuid, exactly as create_event() is and for the same
-    reason: the field app queues a whole camp move in its outbox and replays
-    it after an 8-second timeout, so a slow-but-landed request would
-    otherwise move the camp twice - a duplicate movement per animal, which
-    is what _current_locations() reads to decide where the herd is.
+    Shared by the bulk camp move and the bulk treatment. Idempotent on
+    client_uuid exactly as create_event() is and for the same reason: the
+    field app queues a whole batch in its outbox and replays it after an
+    8-second timeout, so a slow-but-landed request would otherwise record
+    every animal twice. `build(animal, key)` makes one animal's event.
     """
-    if not payload.tags:
-        raise HTTPException(400, "At least one tag is required")
-    animals = [_animal_by_tag(session, tag) for tag in payload.tags]
-
     already = {}
-    if payload.client_uuid:
-        keys = [_batch_member_uuid(payload.client_uuid, a.id) for a in animals]
+    if client_uuid:
+        keys = [_batch_member_uuid(client_uuid, a.id) for a in animals]
         already = {
             event.client_uuid: event
             for event in session.exec(select(Event).where(Event.client_uuid.in_(keys))).all()
@@ -214,23 +223,21 @@ def create_bulk_movement(payload: BulkMovementCreate, session: Session = Depends
     events = []
     fresh = []
     for animal in animals:
-        key = _batch_member_uuid(payload.client_uuid, animal.id) if payload.client_uuid else None
+        key = _batch_member_uuid(client_uuid, animal.id) if client_uuid else None
         if key is not None and key in already:
             # Already on file from an earlier attempt at this same batch,
             # weather and all - leave it exactly as it was recorded.
             events.append(already[key])
             continue
-        event = Event(animal_id=animal.id, kind=EventKind.movement,
-                      event_date=payload.event_date, location=payload.location,
-                      note=payload.note, client_uuid=key)
+        event = build(animal, key)
         events.append(event)
         fresh.append(event)
 
     if fresh:
-        # One lookup for the whole camp: every animal in the batch shares the
-        # farm's position and the move's date, so asking per animal would be
-        # the same answer fetched once per head of cattle.
-        weather = _weather_for(session, payload.event_date)
+        # One lookup for the whole batch: every animal in it shares the
+        # farm's position and the date, so asking per animal would be the
+        # same answer fetched once per head of cattle.
+        weather = _weather_for(session, event_date)
         for event in fresh:
             _stamp_weather(event, weather)
 
@@ -241,23 +248,158 @@ def create_bulk_movement(payload: BulkMovementCreate, session: Session = Depends
     return events
 
 
+@router.post("/events/movement/bulk")
+def create_bulk_movement(payload: BulkMovementCreate, session: Session = Depends(get_session)):
+    """Record the same movement for every listed animal in one call, so a
+    camp move lands as one save instead of one request per tag. Tags are
+    resolved up front - if any one of them doesn't exist, nothing is
+    written, rather than moving half a camp and failing partway through.
+    """
+    if not payload.tags:
+        raise HTTPException(400, "At least one tag is required")
+    animals = [_animal_by_tag(session, tag) for tag in payload.tags]
+    location = _camp_location(session, EventKind.movement, payload.location)
+    if not location:
+        raise HTTPException(422, "a camp move needs the camp it is moving to")
+    return _record_batch(
+        session, animals, payload.client_uuid, payload.event_date,
+        lambda animal, key: Event(animal_id=animal.id, kind=EventKind.movement,
+                                  event_date=payload.event_date, location=location,
+                                  note=payload.note, client_uuid=key))
+
+
+class BulkTreatmentCreate(SQLModel):
+    """Treat a whole group at once: the dosing day, when every animal in a
+    camp gets the same product. The same fields a single treatment
+    carries (see EventCreate), applied to every tag."""
+    tags: list[str]
+    event_date: date
+    product: str = ""
+    dose: str = ""
+    withdrawal_days: Optional[int] = None
+    note: str = ""
+    client_uuid: Optional[str] = None
+
+    @field_validator("withdrawal_days")
+    @classmethod
+    def _withdrawal_is_days(cls, value: Optional[int]) -> Optional[int]:
+        if value is not None and value < 0:
+            raise ValueError("withdrawal days cannot be negative")
+        return value
+
+
+@router.post("/events/treatment/bulk")
+def create_bulk_treatment(payload: BulkTreatmentCreate, session: Session = Depends(get_session)):
+    """Record the same treatment for every listed animal in one call. Tags
+    are resolved up front, as for a camp move: all or nothing."""
+    if not payload.tags:
+        raise HTTPException(400, "At least one tag is required")
+    animals = [_animal_by_tag(session, tag) for tag in payload.tags]
+    product = " ".join(payload.product.split())
+    dose = " ".join(payload.dose.split())
+    return _record_batch(
+        session, animals, payload.client_uuid, payload.event_date,
+        lambda animal, key: Event(animal_id=animal.id, kind=EventKind.treatment,
+                                  event_date=payload.event_date, note=payload.note,
+                                  product=product, dose=dose,
+                                  withdrawal_days=payload.withdrawal_days, client_uuid=key))
+
+
+def withdrawal_until(session: Session) -> dict:
+    """{animal_id: date} of the latest day each animal is still inside a
+    treatment's withdrawal period, for those that are. The longest of any
+    overlapping treatments wins: an animal dosed twice is clear when the
+    later-ending one is."""
+    today = date.today()
+    rows = session.exec(
+        select(Event.animal_id, Event.event_date, Event.withdrawal_days)
+        .where(Event.kind == EventKind.treatment)
+        .where(Event.withdrawal_days.is_not(None))
+    ).all()
+    until: dict = {}
+    for animal_id, on, days in rows:
+        end = on + timedelta(days=days)
+        if end >= today and end > until.get(animal_id, date.min):
+            until[animal_id] = end
+    return until
+
+
+# How many distinct products the pickers offer. The farm's medicine cupboard
+# is a dozen bottles; the list is there to save typing, not to be searched.
+_RECENT_PRODUCTS = 20
+
+
+@router.get("/products")
+def list_products(session: Session = Depends(get_session)):
+    """The products given before, most recently used first, each with the
+    dose and withdrawal it was last recorded with - so the next treatment
+    with the same bottle is one tap, and a withdrawal typed once is typed
+    once. Nothing to set up: the list is the treatments already on file."""
+    rows = session.exec(
+        select(Event.product, Event.dose, Event.withdrawal_days)
+        .where(Event.kind == EventKind.treatment)
+        .where(Event.product != "")
+        .order_by(Event.event_date.desc(), Event.id.desc())
+    ).all()
+    seen = set()
+    products = []
+    for product, dose, days in rows:
+        key = product.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        products.append({"product": product, "dose": dose, "withdrawal_days": days})
+        if len(products) >= _RECENT_PRODUCTS:
+            break
+    return products
+
+
 @router.get("/locations")
 def list_locations(session: Session = Depends(get_session)):
-    """Every camp/location currently holding at least one alive animal,
-    grouped with who's there - what the "move whole camp" picker uses so a
-    location can be selected without typing out every tag in it."""
+    """Every camp the farm has, in Settings order, with the alive animals in
+    each - what the "move whole camp" picker shows, so a camp can be chosen
+    without typing out every tag in it.
+
+    Three things are in the list that were not before camps were managed:
+
+    - a camp with nobody in it, so the farmer sees the whole farm and not
+      just the camps that happen to hold an animal (the apps grey it out);
+    - a camp that is on the events but was never set up (older records, or
+      a device replaying an outbox from before the list existed), grouped
+      under its own name after the managed ones, so no animal disappears
+      from the picker;
+    - last, a row with location None for the alive animals that have no
+      camp recorded at all, so they can be moved INTO a camp - before this
+      an animal with no history could never be picked.
+    """
     latest_location = _current_locations(session)
     alive = session.exec(select(Animal).where(Animal.status == AnimalStatus.alive)).all()
-    grouped: dict = {}
+    camps = session.exec(select(Camp).order_by(Camp.sort_order, Camp.id)).all()
+    by_key = {fold(c.name): c for c in camps if not c.archived}
+
+    grouped: dict = {fold(c.name): [] for c in by_key.values()}
+    names = {key: camp.name for key, camp in by_key.items()}
+    unplaced = []
     for animal in alive:
         location = latest_location.get(animal.id)
         if not location:
+            unplaced.append({"tag": animal.tag, "name": animal.name})
             continue
-        grouped.setdefault(location, []).append({"tag": animal.tag, "name": animal.name})
-    return [
-        {"location": location, "animals": sorted(members, key=lambda a: a["tag"])}
-        for location, members in sorted(grouped.items())
-    ]
+        key = fold(location)
+        names.setdefault(key, location.strip())
+        grouped.setdefault(key, []).append({"tag": animal.tag, "name": animal.name})
+
+    def row(key):
+        return {"location": names[key],
+                "animals": sorted(grouped[key], key=lambda a: tag_sort_key(a["tag"]))}
+
+    managed = [row(fold(c.name)) for c in by_key.values()]
+    stray = [row(key) for key in sorted(k for k in grouped if k not in by_key)]
+    rows = managed + stray
+    if unplaced:
+        rows.append({"location": None,
+                     "animals": sorted(unplaced, key=lambda a: tag_sort_key(a["tag"]))})
+    return rows
 
 
 @router.get("/animals/{tag}/events")

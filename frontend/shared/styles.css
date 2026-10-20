@@ -97,6 +97,97 @@ body {
 }
 .action-btn:active { background: #f1f5f9; }
 .action-btn i { font-size: 1.4rem; }
+.action-btn-danger { border-color: #fca5a5; color: var(--boord-red); }
+.action-btn-danger i { color: var(--boord-red); }
+
+/* Field is read in sunlight at arm's length, often through a dusty
+   screen. The small grey text Tailwind's defaults give (12px slate-500)
+   is fine at a desk and gone outdoors, so Field alone gets a size up and
+   a shade darker. Admin keeps the defaults: it is an office screen. */
+.app-field .text-xs { font-size: 0.8125rem; line-height: 1.2rem; }
+.app-field .text-sm { font-size: 0.9375rem; }
+.app-field .text-slate-500 { color: #475569; }
+.app-field .text-slate-400 { color: #64748b; }
+
+/* A row with something of its own still in the outbox. Amber, small and
+   beside the status pill, so it is seen without shouting; the sync pill
+   in the header has the count. */
+.unsynced-dot { color: #d97706; font-size: 0.7rem; }
+
+/* Two-way switch (Field list: Alive / All). A segmented control rather
+   than a checkbox because the two states need naming - "show dead and
+   sold" ticked or unticked reads as a question, "Alive | All" reads as
+   the answer. */
+.seg-btn { padding: 0.45rem 0; border-radius: 0.4rem; color: #475569; }
+.seg-btn.active { background: white; color: var(--boord-blue); box-shadow: 0 1px 2px rgba(0,0,0,0.12); }
+
+/* Camp chips (shared/camps.js). Big enough for a gloved thumb, and the
+   chosen one is filled blue rather than outlined so it reads from arm's
+   length in sun. The Other chip is dashed: it is the way out of the list,
+   not a camp. */
+.chip-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem; }
+.chip {
+  padding: 0.55rem 0.9rem; border-radius: 999px; font-size: 0.95rem; font-weight: 600;
+  background: #f1f5f9; color: #1e293b; border: 1px solid #cbd5e1;
+}
+.chip.active { background: var(--boord-blue); color: white; border-color: var(--boord-blue); }
+.chip-other { border-style: dashed; color: #475569; }
+.chip-other.active { color: white; }
+
+.btn-outline { background: white; color: #1e293b; border: 2px solid #cbd5e1; }
+.btn-outline:active { background: #f1f5f9; }
+
+/* The "Need weighing" count doubles as a filter button. */
+.count-btn.active { background: #dbeafe; }
+.count-btn.active .text-slate-500 { color: var(--boord-blue); }
+
+/* A weight that is a long way from the last one. Amber, not red: it is a
+   question, not a refusal - the animal may really have lost that much. */
+.hint-warn { color: #b45309; font-weight: 600; }
+
+/* An animal still inside a withdrawal period: must not be sold or
+   slaughtered yet. Red, because that is the one line on the list that
+   can cost the farm its buyer. */
+.withdrawal-pill { background: #fee2e2; color: #991b1b; }
+
+/* The Admin herd table on a phone: each row becomes a card with the tag
+   on top and the status pill at its right, the other cells as labelled
+   fragments, and empty cells left out. Desktop keeps the table. */
+@media (max-width: 640px) {
+  .herd-table thead { display: none; }
+  .herd-table tr { display: flex; flex-wrap: wrap; align-items: flex-start; padding: 0.5rem 0.75rem; }
+  .herd-table td { display: inline-block; padding: 0.1rem 0.6rem 0.1rem 0; border: 0; }
+  /* Tag and status share the first line (status pushed right); a
+     zero-height full-width pseudo-element then breaks the line, and the
+     labelled fragments follow. Flex order, not absolute positioning: a
+     status cell two lines tall (pill plus withdrawal) used to sit on top
+     of the fragments beneath it. */
+  .herd-table td.herd-tag { order: 0; flex: 1 1 auto; font-size: 1.05rem; padding-bottom: 0.2rem; }
+  .herd-table td.herd-status { order: 1; margin-left: auto; padding: 0; text-align: right; }
+  .herd-table tr::after { content: ""; order: 2; flex-basis: 100%; height: 0; }
+  .herd-table td[data-label] { order: 3; }
+  .herd-table td.herd-name, .herd-table td.herd-empty { display: none; }
+  .herd-table td[data-label]::before { content: attr(data-label) " "; color: #94a3b8; font-size: 0.7rem; }
+}
+
+/* Confirmation sheet (Kudde.confirm). Bottom-anchored on a phone, where
+   the thumb is; centred on a wide screen. Above every modal. */
+.sheet-backdrop {
+  position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,0.5);
+  display: flex; align-items: flex-end; justify-content: center; padding: 0.75rem;
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+}
+@media (min-width: 640px) { .sheet-backdrop { align-items: center; } }
+.sheet { background: white; border-radius: 1rem; padding: 1.25rem; width: 100%; max-width: 24rem; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+.sheet-title { font-weight: 700; font-size: 1.1rem; margin-bottom: 0.5rem; }
+.sheet-body p { color: #334155; margin-bottom: 0.4rem; }
+.sheet-warning { margin: 0.5rem 0; padding: 0.6rem 0.75rem; border-radius: 0.6rem; background: #fef3c7; color: #92400e; font-weight: 600; }
+.sheet-warning i { color: #d97706; }
+.sheet-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
+.sheet-actions button { flex: 1; padding: 0.8rem; border-radius: 0.6rem; font-weight: 600; }
+.sheet-cancel { background: #f1f5f9; color: #1e293b; }
+.sheet-confirm { background: var(--boord-blue); color: white; }
+.sheet-confirm.sheet-danger { background: var(--boord-red); }
 
 .tab-btn { flex: 1; text-align: center; padding: 0.6rem 0; font-size: 0.8rem; white-space: nowrap; padding-left: 1rem; padding-right: 1rem; }
 .tab-btn.active { color: var(--boord-blue); font-weight: 600; border-bottom: 3px solid var(--boord-blue); }

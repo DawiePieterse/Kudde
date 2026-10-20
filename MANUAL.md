@@ -129,7 +129,7 @@ the animal's status following it.
 |---|---|---|
 | **Birth** | The animal was born | - |
 | **Weight** | A weighing | Value, in kg |
-| **Treatment** | A vet treatment, dosing, etc. | - |
+| **Treatment** | A vet treatment, dosing, etc. | Product, dose, withdrawal (days) - all optional |
 | **Movement** | A move between camps/paddocks | Location (the camp name) |
 | **Sale** | The animal was sold | - |
 | **Death** | The animal died | - |
@@ -138,6 +138,28 @@ Every event also carries a date and a free-text note, whatever the kind.
 `value` (kg) only means anything on a weight event, and `location` only
 means anything on a movement event - the other kinds simply leave those
 blank.
+
+### Treatments and withdrawal
+
+A treatment can record **what was given** (the product), **how much** (the
+dose, free text - "5 ml", "2 tablets") and the **withdrawal period** in
+days, off the label: how long the animal may not be sold for slaughter
+afterwards. All three are optional; a treatment that is only a note is
+still a treatment, and every treatment recorded before these fields
+existed simply has none.
+
+The products used before are offered as chips on every treatment form,
+most recently used first, each remembering the dose and withdrawal it was
+last given with - so the next animal dosed from the same bottle is one
+tap. There is nothing to set up: the list is the treatments on file.
+
+While a withdrawal runs, the animal is **in withdrawal**: the Field list
+and the Admin herd table show a red *Withdrawal to <date>* pill under it,
+the Admin dashboard lists everyone in withdrawal with the day each is
+clear, and recording a **Sale** warns first, naming the date. A warning,
+not a refusal - the sale may be to another farm. Overlapping treatments
+end when the longest one does. The day the period ends still counts as
+in withdrawal.
 
 **A weight event must carry a weight.** Both apps and the server refuse a
 weighing with the kg box left empty, or filled in with something that
@@ -161,20 +183,60 @@ simply carries no weather. **A weather lookup never blocks a record from
 being saved.** Events recorded before you set the position keep no
 weather; it is not backfilled.
 
-The Field app's quick-action buttons cover weight, treatment, movement,
-sale, and death - the events you'd realistically capture while standing
-next to the animal. There's no field quick-action for **birth**, since a
-newly recorded animal's birth date is normally set directly on the **Add
-animal** form instead. A birth event is there for the rarer case where
-you want to log the birth itself as a dated event with its own note - it
-is available from **Admin - Herd**'s event form.
+The Field app's quick-action buttons cover all six, the events you'd
+realistically capture while standing next to the animal. On a cow, the
+birth button reads **Calved** and opens the calving screen: one form that
+records the birth event on the cow *and* adds the calf with her as its
+dam - see [Recording a calving](#recording-a-calving) in chapter 4. The
+cow's birth event carries the camp it happened in and, in the note, what
+matters afterwards: calving ease, whether it had to be pulled, whether
+cow and calf are up and sucking. A bull has no Calved button.
+
+### Cows, heifers, bulls, steers and calves
+
+A farmer counts the herd in those words, not in "female" and "male", so
+every screen shows each animal's **class** - and nothing has to be typed
+for it. It follows from what is recorded already:
+
+| Class | Rule |
+|---|---|
+| **Heifer calf / bull calf / steer calf** | Under a year old, by birth date |
+| **Heifer** | A female who has not calved - however old she is |
+| **Cow** | A female with a calving on record: a calf with her as dam, or a birth event on her dated well after her own birth |
+| **Bull** | A grown male |
+| **Steer** | A grown male marked **castrated** |
+
+An animal entered without a birth date counts as grown: it is nearly
+always a bought-in adult, not a calf nobody dated. **Castrated** is the
+one thing that can't be worked out, so it is a tick on the animal (on the
+Add animal form, and in Admin's edit form) - every male starts as a bull
+until it is ticked.
+
+The class is on each row in Field and in the Admin herd table, Admin can
+filter the table by it, and the dashboard counts the live herd by it.
 
 ### Camps, and moving a whole one
 
-Kudde has no separate list of camps to set up and maintain. A camp is
-just the location typed on a movement event, and an animal's current camp
-is worked out from its history - the most recent movement (or birth) that
-named one.
+The farm's camps are set up once, in [Admin - Settings](#camps), in the
+order you want them listed, and from then on every place a camp is
+recorded - a camp move, a movement or birth event, a new animal - offers
+them as a row of **chips**: one tap picks a camp, no typing. The last chip
+is always **Other...**, which opens a text box for a camp that isn't set
+up yet. Use it freely: the server adds whatever you type to Settings on
+its own, and the app says so ("new camp added to Settings"), so the
+office can tidy the name or order later. Nobody at a gate is ever blocked
+by a list the office hasn't got round to.
+
+Names ignore capitals: `noordkamp` typed with Other lands as the
+`Noordkamp` already in Settings, not as a second camp.
+
+What Settings holds is only the *list*. An animal's current camp is still
+worked out from its history - the most recent movement (or birth) that
+named one. Renaming a camp changes nothing already recorded (history keeps
+the name as it was typed at the time); archiving one hides it from the
+chips without touching a single event, and a camp that still holds animals
+can't be archived at all. A farm upgrading from an older Kudde finds its
+camps already in Settings, seeded from the moves on file.
 
 Because a camp move in real life is a whole group walking through a gate
 together, both apps have a **Move camp** action that records the same
@@ -580,7 +642,9 @@ down from the top of the list to re-fetch the herd and dashboard summary
 ### Searching and adding an animal
 
 The search box at the top filters the herd list live, by tag (matches
-anywhere) or name. **Add animal** opens a form for:
+anywhere) or name. The **QR button** beside it opens the camera: point it
+at a tag's QR code or barcode and the animal opens - see [Scanning a
+tag](#scanning-a-tag). **Add animal** opens a form for:
 
 - **Tag number** (required) - the ear tag number, and the animal's
   permanent identity. Kudde refuses a tag already in use, and refuses a
@@ -588,51 +652,174 @@ anywhere) or name. **Add animal** opens a form for:
   `" A1 "` and `"A1"` are the same animal rather than two identical-looking
   ones nothing can tell apart.
 - **Name** (optional)
-- **Sex** (required) - Female or Male
+- **Sex** (required) - two buttons, **Female** or **Male**, neither
+  chosen until you tap one. Under Male, a **Castrated (steer)** tick.
 - **Breed** (optional, free text)
 - **Birth date** (optional)
+- **Camp** (optional) - where the animal is now, picked from the chips
+  (or typed with **Other...**). Recorded as the animal's first movement
+  event, dated today, so it shows up in the right camp straight away and
+  **Move camp** can see it. Left blank, the animal has no camp until
+  something is recorded for it, and sits under *No camp yet* in the Move
+  camp picker.
 - **Sire tag / Dam tag** (optional) - the parent's ear tag, if known.
   These don't have to exist in Kudde's own records; a bought-in animal or
   a bull borrowed from a neighbour can still be recorded as a parent.
 
 New animals start **Alive**.
 
+### Today
+
+Below the counts, once anything has been recorded today, a **Today** card
+with how many records this phone has made since midnight. Tap it to open
+the list - time, tag and what was recorded, newest first, with *(on
+phone)* after anything still waiting to sync. It is the check before
+leaving the kraal: did the weighing go in, did I record the move. It is
+kept on the phone, so it is there with no signal, and starts empty each
+morning. Tap a line to open that animal.
+
 ### The herd summary and list
 
-Below the search box, two counts: **Alive**, and **Need weighing** (see
-["Needs weighing"](#needs-weighing) in chapter 1). The list below shows
-every cached animal, sorted by tag, each with a status pill (Alive/Dead/
-Sold). Tap any animal to open its detail.
+Below the search box, an **Alive / All** switch and two counts: **Alive**,
+and **Need weighing** (see ["Needs weighing"](#needs-weighing) in chapter
+1). Both are counted on the phone from its copy of the herd, so they are
+right with no signal and the moment something is recorded. **Tap Need
+weighing** and the list becomes that worklist - just the alive animals
+overdue a weighing; tap it again to go back.
+
+The list shows the cached animals, sorted by tag the way they are read
+(B2 before B10). Each row shows the tag and name, then its **class**
+(cow, heifer, bull, steer or calf - see [chapter
+1](#cows-heifers-bulls-steers-and-calves)), **the camp the animal is in
+and its last weight** with how long ago that was - the two
+things you want while walking the herd - with a small warning triangle on
+an animal that needs weighing. Breed and sex are on the detail card. Tap
+any animal to open its detail.
+
+The list shows **alive animals only** unless you switch it to **All**,
+which adds the dead and sold ones. The phone remembers the switch. Typing
+in the search box always searches every animal, whichever way the switch
+is set, so a sold animal's tag still finds it.
 
 ### Animal detail and recording an event
 
-Tapping an animal opens its tag, name/breed/sex, status pill, and five
-quick-action buttons:
+Tapping an animal opens its tag, name/breed/class, status pill, an **×**
+to close, and six quick-action buttons:
 
-**Weight · Treatment · Move · Sale · Death**
+**Weight · Treatment · Move · Calved · Sale · Death**
 
-Each opens a small form: a date (defaults to today), a value in kg
-(weight only), a camp/location (movement only), and a free-text note.
+(**Calved** appears on cows only. **Sale** and **Death** are outlined in
+red: they are the two that take the animal out of the live herd.)
+
+On an Android phone the **back button closes whatever sheet is open**
+rather than leaving the app.
+
+Each opens a small form: a date (defaults to today, with **Today** and
+**Yesterday** chips above the box so the second-most-common case - last
+night's record written up this morning - is one tap too), a value in kg
+(weight only), the camp as a row of chips (movement and birth only - see
+[Camps](#camps-and-moving-a-whole-one)), and a free-text note.
+
+A **Treatment** has product chips (the bottles used before), and boxes for
+product, dose and withdrawal days - see [Treatments and
+withdrawal](#treatments-and-withdrawal) in chapter 1.
+
+Under the kg box, the **last weighing** is shown - how much, when, and
+how long ago - and as you type, the change since and the gain per day.
+A number more than 30% off the last one gets an amber *check* note: 412
+typed as 41, or the previous animal's weight left in the box, is caught
+here rather than in a report six months on. It is a question, not a
+refusal - the animal may really have lost that much.
+
 Saving:
 
 - Sends the event to the server immediately if reachable.
 - If not, saves it to this device's outbox and shows *"Saved on this
   device - will sync when online"* instead.
-- For a **Sale** or **Death** event, first asks you to confirm (naming
-  the tag, since either one takes the animal out of the live herd), then
+- For a **Sale** or **Death** event, first asks you to confirm on a sheet
+  naming the tag, with a red **Record sale** / **Record death** button
+  (either one takes the animal out of the live herd) and an amber warning
+  if the animal is still in withdrawal - then
   flips the animal's status right away on this device (the same rule the server applies), so the list and
   the detail card are correct immediately, connected or not.
 
 A **Weight** event with the kg box empty is refused rather than saved
 blank - see [The six event kinds](#the-six-event-kinds).
 
+### Recording a calving
+
+Standing at a cow that has calved, tap her, then **Calved**. One screen
+asks for:
+
+- the **date** (today by default) - it becomes the calf's birth date;
+- the **calf's tag** and whether it is a **heifer** or a **bull calf**;
+- optionally the calf's **name** and the **sire's tag**;
+- the **breed** and **camp**, both filled in from the cow and changeable;
+- a **note** on the calving itself - ease, pulled or not, up and sucking.
+
+**Save** records two things at once: a birth event on the cow (camp and
+note, with *Calf <tag>* in front of the note so her history reads
+right), and the calf as a new animal - alive, with the cow as dam, born
+on that date, in that camp. Both land together or not at all: a calf tag
+already in use is refused and the cow gets no birth event either. Offline
+it is one entry in the outbox, replayed as one.
+
+### Scanning a tag
+
+Wherever a tag is typed - the search box, and the tag box in a weigh or
+treat session - a **QR button** beside it opens the camera full screen.
+Point it at the code on the tag; the moment it reads, the camera closes
+and the tag is filled in (in a session, the cursor moves on to the kg
+box). **Cancel** or the back button closes it without reading.
+
+What it reads: QR codes on every phone; on an Android phone also the
+common one-dimensional barcodes (Code 128, Code 39, EAN). An iPhone reads
+QR only. A code that is a web address ending in the tag is taken by its
+last part, so either style of printed label works.
+
+The camera needs the secure `https://...ts.net:8030/` address, which is
+the one every device already uses, and the browser asks once for camera
+permission. A refused permission is reported, not silently ignored, and
+can be changed in the phone's settings for the browser.
+
+### Weigh and treat sessions
+
+A weighing day is forty head through a crush, and the one-animal flow
+above is six taps a head. **Weigh session** and **Treat session**, on the
+main screen, are the crush-side way of working:
+
+1. Pick the date (today by default). For a treat session, say what is
+   being given once - tap the product chip, or type the product, dose and
+   withdrawal days - and it is recorded on every animal in the session.
+   An animal already in withdrawal says so under its tag as it comes up.
+2. **Start**. The screen is now a tag box and (for weighing) a kg box.
+3. Type the tag - it completes from the herd after a character or two -
+   and the animal's name and camp appear under it, with its last weighing
+   and the change as you type the kg, exactly as on the single form.
+   Enter moves from the tag to the kg box, and Enter again saves.
+4. **Save and next** records the event and clears the boxes for the next
+   animal. The count at the top and the list underneath show what this
+   session has recorded so far, and whether each entry reached the server
+   or is saved on the phone to sync later.
+5. **Done** when the last animal is through.
+
+Every save is an ordinary event: it lands immediately with signal and
+queues in the outbox without, one per animal, exactly as if it had been
+recorded from the detail screen. A tag that is already in the session is
+queried before being recorded a second time - usually it is the previous
+animal still in the box. A tag Kudde does not know is refused; add the
+animal first.
+
 ### Taking photos
 
 The detail screen has a **Take photo** button. On a phone it opens the
 camera directly; on a PC it opens a file picker. Photos appear as a row
-of thumbnails - tap one to open it full size, or the small **×** on its
+of thumbnails - tap one to open it full screen, or the small **×** on its
 corner to delete it (it asks first - a deleted photo can't be brought
 back).
+
+Tapping a thumbnail opens the photo full screen inside the app; tap
+anywhere to close it.
 
 Photos work offline the same way events do: taken with no signal, the
 photo is held on the device and uploaded when a connection comes back.
@@ -654,19 +841,23 @@ locally the way the herd list is.
 **Move camp**, on the main screen, records one move against a whole group
 rather than one animal at a time:
 
-1. It lists every camp that currently holds at least one alive animal,
-   with how many are in each. (A camp only appears once something has
-   been recorded as being there - see
-   [Camps](#camps-and-moving-a-whole-one) in chapter 1.)
+1. It lists every camp in Settings, in Settings order, with how many
+   alive animals are in each. An empty camp is shown greyed - there is
+   nothing to move out of it. A camp that only the history knows (an old
+   name nobody set up) lists after the managed ones, so no animal drops
+   out of the picker. Last comes **No camp yet**: the alive animals that
+   have never been placed anywhere, so they can be moved *into* a camp.
 2. Pick the camp everyone is moving *from*. It shows that camp's animals,
    all ticked.
 3. Untick any that aren't going.
-4. Fill in the date, the new location, and an optional note, then
-   **Move**.
+4. Fill in the date, tap the camp they are moving **to** (the camp you
+   are moving from isn't offered; **Other...** opens a text box for a camp
+   that isn't set up yet), add an optional note, then **Move**.
 
-That writes one movement event per animal, all with the same date,
-location and note. Like everything else in Field it queues offline, and
-syncs as a single item rather than one per animal.
+That writes one movement event per animal, all with the same date, camp
+and note. Like everything else in Field it queues offline, and syncs as a
+single item rather than one per animal. The chips work offline too, from
+the last list the phone fetched.
 
 ### Offline-first capture, in detail
 
@@ -676,10 +867,13 @@ Behind the scenes:
 - The herd list is cached on the device (IndexedDB), so it's browsable
   offline - though each animal's event *history* is fetched live and
   isn't available offline.
+- An animal with anything of its own still in the outbox shows a small
+  amber cloud beside its status pill until it has synced.
 - Anything that couldn't reach the server goes into an on-device outbox
   and is retried automatically: every 20 seconds, the moment the browser
   reports it's back online, and on every pull-to-refresh. The outbox
-  carries new animals, events, whole camp moves, and photos alike.
+  carries new animals, events, whole camp moves, calvings, and photos
+  alike.
 - **A retry can't record the same thing twice.** Each capture is stamped
   with an id on the device at the moment it's taken, and the server stores
   one record per id. This matters more than it sounds: the app gives up on
@@ -694,8 +888,8 @@ Behind the scenes:
   that one entry stops being sent so it doesn't block every entry queued
   behind it, but it is **kept on the device, marked failed**. The sync
   pill turns red and adds *"N failed"*. Tap the pill: each failed item is
-  shown with the server's reason, and **OK** discards it, **Cancel**
-  keeps it. Nothing refused is thrown away until you say so. **Two
+  shown with the server's reason, and **Discard** throws it away,
+  **Keep** keeps it. Nothing refused is thrown away until you say so. **Two
   devices creating the same new tag while both offline is the one case
   Kudde can't reconcile for you** - whichever syncs first wins, and the
   second shows up as failed on its device. If more than one device might
@@ -722,10 +916,28 @@ couldn't verify the newest release - nothing has been installed, and
 `setup_update_check.bat` has been run once on the server; see
 [Updating](#updating-to-a-newer-version-of-the-code) in chapter 2.
 
+### In withdrawal
+
+Shown only when at least one alive animal is inside a treatment's
+withdrawal period: each with the first day it may be sold, soonest first.
+See [Treatments and withdrawal](#treatments-and-withdrawal).
+
 ### Herd counts
 
 Three tiles: **Alive**, **Dead**, **Sold** - a live count straight from
 the database.
+
+### Herd by class
+
+The live herd as it is counted: cows, heifers, bulls, steers, and the
+three kinds of calf. See [Cows, heifers, bulls, steers and
+calves](#cows-heifers-bulls-steers-and-calves) for how each is decided.
+
+### Herd by camp
+
+Where the live herd is, one tile per camp in Settings order with the
+number of alive animals in it, and an amber *No camp* tile for any not yet
+placed anywhere.
 
 ### The needs-weighing list
 
@@ -748,21 +960,33 @@ The full, editable herd list.
 
 ### Searching and filtering
 
-A search box (tag or name) and a status dropdown (All / Alive / Dead /
-Sold) filter the table live. **Add animal** opens the same fields as the
+A search box (tag or name), a status dropdown (All / Alive / Dead /
+Sold) and a class dropdown (All / Cows / Heifers / Bulls / Steers /
+Calves) filter the table live. **Add animal** opens the same fields as the
 Field app's Add animal form, and **Move camp** runs the same whole-camp
 move described in [chapter 4](#moving-a-camp) - the office version of the
 same action, for a move somebody phoned in rather than captured at the
 gate.
 
+**Treat group** is the dosing day from the desk: pick the camp, untick
+any animal that wasn't treated, then the product (chips for the bottles
+used before), dose, withdrawal days, date and a note, and **Record
+treatment** writes one treatment event per animal - the same record a
+Field treat session makes, including the withdrawal that then flags
+each animal.
+
 ### The herd table
 
-Columns: Tag, Name, Breed, Sex, Birth date, Status. Click any row to open
-that animal.
+Columns: Tag, Name, Breed, Class, Birth date, Camp, Last weight (with
+its date), Status. On a phone the table becomes a stack of cards - tag
+and name on top, status at the right, the rest beneath, with empty fields
+left out - instead of a table that needed sideways scrolling to reach the
+status column. Click any row to open that animal.
 
 ### Editing an animal
 
-Opens every field the Add form has, plus **Status** (Alive/Dead/Sold) -
+Opens every field the Add form has (including the **Castrated** tick
+under a male's sex), plus **Status** (Alive/Dead/Sold) -
 editable directly here, in addition to being set automatically by a sale
 or death event. The **tag number can't be changed** once an animal is
 created; it's the identity everything else (events, parentage links from
@@ -780,9 +1004,11 @@ server, not just the listing.
 
 Below the fields, when editing an existing animal: its full event
 history, and a compact form to record a new one directly - date, kind
-(**Weight, Treatment, Movement, Birth, Sale, Death** - including Birth,
-unlike the Field app's quick actions), value in kg (weight only),
-location (movement only), and a note. Each event in the history shows its
+(**Weight, Treatment, Movement, Birth, Sale, Death**), and a note. The
+kg box appears only for a weight, with the animal's last weighing and the
+change since under it (and a *check* note when the new number is more
+than 30% off), and the camp chips only for a movement or a birth; the
+other kinds show neither. Each event in the history shows its
 weather alongside the date, where one was recorded. Saving refreshes the
 history list, the herd table, the dashboard, and - if the event was a sale
 or death - the status pill shown at the top of this same modal, without
@@ -805,6 +1031,36 @@ recorded. Admin only - there's no Settings screen in Field.
 free text. Kudde doesn't act on any of them; they're there so a farm's own
 identity lives with its records rather than only in the head of whoever
 set the server up.
+
+### Camps
+
+The list every camp picker in both apps offers, in the order shown here.
+Changes to camps save as you make them - the **Save settings** button
+below is for the farm details and position only.
+
+- **Add camp** - type a name and press Add. A name already on the list,
+  in any capitals, is refused.
+- **Arrows** - move a camp up or down. The farmer's order, the way the
+  camps lie on the farm, is usually more use than the alphabet.
+- **Pencil** - rename. History keeps the old name on the events that
+  recorded it; the chips show the new one from now on.
+- **Archive** - hides the camp from the chips. Only an empty camp can be
+  archived; the count beside each name says what is in it. Archived camps
+  sit under **Archived camps** at the bottom and can be restored. A camp
+  typed with **Other...** in the field that matches an archived name
+  restores it rather than making a second one.
+
+A camp typed with **Other...** anywhere in either app appears here on its
+own, at the end of the list, for you to tidy.
+
+### Export
+
+Two buttons, **Animals (CSV)** and **Events (CSV)**, each downloading the
+whole table as a file a spreadsheet opens directly - for the accountant,
+the vet, or your own sums. Animals carry their camp, class, last weight
+and withdrawal date; every event row names the animal's tag, so the file
+reads on its own. The files are UTF-8 with a byte-order mark, which is
+what Excel on Windows needs to show accented names correctly.
 
 ### GPS coordinates, and the weather
 
@@ -938,6 +1194,7 @@ free some space in `data\backups\` and start the server again. See
 | `name` | text | Optional |
 | `breed` | text | Optional, free text - no breed-code lookup |
 | `sex` | `male` \| `female` | Required |
+| `castrated` | boolean | A castrated male is a steer. Ignored on a female |
 | `birth_date` | date | Optional |
 | `sire_tag` | text | Optional. The father's ear tag - not required to exist as an `Animal` in this database |
 | `dam_tag` | text | Optional. The mother's ear tag - same rule as `sire_tag` |
@@ -955,7 +1212,10 @@ free some space in `data\backups\` and start the server again. See
 | `event_date` | date | Required |
 | `value` | number | Weight in kg - only meaningful on a `weight` event |
 | `note` | text | Optional, free text, any kind |
-| `location` | text | The camp/paddock name - only meaningful on a `movement` event. An animal's current camp is the most recent `movement` or `birth` event that named one |
+| `product` | text | Treatment only: what was given. Empty on other kinds, and on treatments recorded before this field existed |
+| `dose` | text | Treatment only: how much, free text |
+| `withdrawal_days` | integer | Treatment only: days before the animal may be sold for slaughter. Null when none was recorded. The animal is in withdrawal through `event_date` + this many days |
+| `location` | text | The camp name - only meaningful on a `movement` or `birth` event, where it is snapped to the spelling in the `Camp` table (and added there if new). Stored as text, not as a link to the camp: an animal's current camp is the most recent `movement` or `birth` event that named one, and renaming a camp leaves this as it was recorded |
 | `weather_temp_max` | number | °C at the farm on `event_date`, filled in automatically. Null if the farm has no position set, or the lookup failed |
 | `weather_temp_min` | number | °C, same rule |
 | `weather_precipitation` | number | mm of rain, same rule |
@@ -982,6 +1242,21 @@ A weight event is refused unless `value` is a number greater than zero.
 The image bytes are never stored in the database - only the filename. The
 files live beside it in `data/photos/`, which is why a backup has to take
 both.
+
+### Camp
+
+The farm's camps, as [Settings](#camps) manages them. Only the list the
+pickers offer: no event points at a row here, so renaming or archiving a
+camp changes no history. Seeded on upgrade from the locations already on
+`movement` and `birth` events, one per name ignoring capitals.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | integer | Internal id |
+| `name` | text | Unique ignoring capitals (compared in Python, not SQL - see `campnames.py`) |
+| `sort_order` | integer | The farmer's order, as set with the arrows in Settings |
+| `archived` | boolean | Hidden from the pickers. Refused while the camp holds alive animals |
+| `created_at` | timestamp | |
 
 ### Farm
 

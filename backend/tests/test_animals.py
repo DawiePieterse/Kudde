@@ -117,3 +117,30 @@ def test_status_filter_and_search(herd):
 def test_animals_are_listed_by_tag(herd):
     tags = [a["tag"] for a in herd.get("/api/animals").json()]
     assert tags == sorted(tags)
+
+
+def test_animals_are_listed_in_natural_tag_order(client):
+    """B2 before B10, the way the tags are read off the animals. Plain text
+    order (what ORDER BY tag gave) put B10 between B1 and B2, so a herd
+    numbered past nine never read in order on any screen."""
+    for tag in ["B10", "b2", "B1", "A100", "A20", "A20X", "7", "12"]:
+        assert client.post("/api/animals", json={"tag": tag, "sex": "female"}).status_code == 200
+    tags = [a["tag"] for a in client.get("/api/animals").json()]
+    assert tags == ["7", "12", "A20", "A20X", "A100", "B1", "b2", "B10"]
+
+
+def test_the_list_carries_each_animals_camp_and_last_weight(herd):
+    """What the Field app shows on a row and beside the kg box, and the only
+    copy it has offline. A1 is weighed again here, so the newer of its two
+    weighings has to win. C3 was never weighed and never placed."""
+    client = herd
+    client.post("/api/events", json={"tag": "A1", "kind": "movement",
+                                     "event_date": RECENTLY.isoformat(), "location": "Bo-kamp"})
+    client.post("/api/events", json={"tag": "A1", "kind": "weight",
+                                     "event_date": RECENTLY.isoformat(), "value": 355.5})
+    rows = {a["tag"]: a for a in client.get("/api/animals").json()}
+    assert rows["A1"]["camp"] == "Bo-kamp"
+    assert (rows["A1"]["last_weight"], rows["A1"]["last_weight_date"]) == (355.5, RECENTLY.isoformat())
+    assert (rows["B2"]["last_weight"], rows["B2"]["camp"]) == (640.0, None)
+    assert rows["C3"]["camp"] is None and rows["C3"]["last_weight"] is None
+    assert rows["C3"]["last_weight_date"] is None

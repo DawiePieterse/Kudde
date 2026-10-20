@@ -3,7 +3,7 @@
 // when available via api.js/idb.js - this only guarantees the UI itself is
 // installable/offline.
 const CACHE_PREFIX = "kudde-field-";
-const CACHE = "kudde-field-v3";
+const CACHE = "kudde-field-v13";
 const REVALIDATE_TIMEOUT_MS = 10000;
 const SHELL = [
   "./",
@@ -17,6 +17,10 @@ const SHELL = [
   "../shared/styles.css",
   "../shared/api.js",
   "../shared/ptr.js",
+  "../shared/camps.js",
+  "../shared/products.js",
+  "../shared/scan.js",
+  "../shared/vendor/jsqr/jsQR.js",
   "../shared/tailwind.js",
   "../shared/vendor/fontawesome/css/all.min.css",
   // The icon font itself, not just the stylesheet that asks for it. Every

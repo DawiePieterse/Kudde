@@ -151,9 +151,56 @@ const Kudde = {
     movement: "Movement", death: "Death", sale: "Sale",
   },
 
+  // "Ivermectin 5 ml, 28 days withdrawal" - what a treatment event was,
+  // for a history line. Empty for a treatment that is only a note.
+  treatmentSummary(e) {
+    if (!e || e.kind !== "treatment") return "";
+    const parts = [];
+    if (e.product) parts.push(e.dose ? `${e.product} ${e.dose}` : e.product);
+    if (e.withdrawal_days != null) parts.push(`${e.withdrawal_days} day${e.withdrawal_days === 1 ? "" : "s"} withdrawal`);
+    return parts.join(", ");
+  },
+
+  // True while `until` (a YYYY-MM-DD) is today or later: the animal may
+  // not be sold or slaughtered yet. Compared as calendar dates in local
+  // time, so the day the withdrawal ends still counts.
+  inWithdrawal(until) {
+    if (!until) return false;
+    return String(until) >= Kudde.localDateStr();
+  },
+
+  // "Heifer calf" from "heifer calf": the server's class names are lower
+  // case so they read inside a sentence; a row or a column wants a capital.
+  classLabel(cls) {
+    const s = String(cls || "");
+    return s ? s.charAt(0).toUpperCase() + s.slice(1) : "";
+  },
+
+  // The class an animal would have, worked out on the device, for one the
+  // server has not answered about yet (added offline). Same rules as
+  // backend/classes.py, less "has calved", which the phone cannot know for
+  // a new animal - and a new animal has not.
+  localClass(a) {
+    const CALF_UNTIL_DAYS = 365;
+    const born = Kudde._parseDate(a.birth_date);
+    const isCalf = born && (Date.now() - born.getTime()) / 86400000 < CALF_UNTIL_DAYS;
+    if (a.sex === "female") return isCalf ? "heifer calf" : "heifer";
+    const base = a.castrated ? "steer" : "bull";
+    return isCalf ? `${base} calf` : base;
+  },
+
   eventLabel(kind) {
     const key = String(kind || "");
     return Kudde.EVENT_LABEL[key] || (key ? key.charAt(0).toUpperCase() + key.slice(1) : "");
+  },
+
+  // Tag order as a farmer reads it: B2 before B10, A20 before A100. Plain
+  // localeCompare sorts digit by digit, so B10 landed between B1 and B2 and
+  // a herd numbered past nine never read in order. The server sorts the
+  // same way (routers/animals.py tag_sort_key); both lists must agree or a
+  // row moves between the Field list and the Move camp picker.
+  compareTags(a, b) {
+    return String(a || "").localeCompare(String(b || ""), Kudde.LOCALE, { numeric: true, sensitivity: "base" });
   },
 
   // "Today" as a YYYY-MM-DD string in local time - what a <input type=date>
@@ -209,6 +256,54 @@ const Kudde = {
 
   isOffline() { return !!Kudde._offline; },
   onOfflineChange: null,
+
+  // A confirmation sheet in place of window.confirm(). Native confirm()
+  // reads as a browser error box on an iPhone, says "OK" for an action that
+  // takes an animal out of the herd, and cannot colour the dangerous
+  // choice. This one names the action on its button, paints it red when
+  // `danger` is set, and lets a WARNING line stand out instead of being
+  // the third paragraph of a grey dialog. Resolves true for the action,
+  // false for the way out (button, backdrop tap or Escape).
+  confirm({ title, message = "", warning = "", confirmLabel = "OK", cancelLabel = "Cancel", danger = false } = {}) {
+    return new Promise((resolve) => {
+      const backdrop = document.createElement("div");
+      backdrop.className = "sheet-backdrop";
+      backdrop.setAttribute("role", "dialog");
+      backdrop.setAttribute("aria-modal", "true");
+      const lines = String(message).split("\n").filter((l) => l.trim());
+      backdrop.innerHTML = `
+        <div class="sheet">
+          <div class="sheet-title"></div>
+          <div class="sheet-body">${lines.map(() => "<p></p>").join("")}</div>
+          <div class="sheet-warning hidden"><i class="fa-solid fa-triangle-exclamation"></i> <span></span></div>
+          <div class="sheet-actions">
+            <button type="button" class="sheet-cancel"></button>
+            <button type="button" class="sheet-confirm ${danger ? "sheet-danger" : ""}"></button>
+          </div>
+        </div>`;
+      backdrop.querySelector(".sheet-title").textContent = title || "";
+      backdrop.querySelectorAll(".sheet-body p").forEach((p, i) => { p.textContent = lines[i]; });
+      if (warning) {
+        backdrop.querySelector(".sheet-warning").classList.remove("hidden");
+        backdrop.querySelector(".sheet-warning span").textContent = warning;
+      }
+      backdrop.querySelector(".sheet-cancel").textContent = cancelLabel;
+      backdrop.querySelector(".sheet-confirm").textContent = confirmLabel;
+
+      const finish = (answer) => {
+        document.removeEventListener("keydown", onKey);
+        backdrop.remove();
+        resolve(answer);
+      };
+      const onKey = (e) => { if (e.key === "Escape") finish(false); };
+      backdrop.querySelector(".sheet-cancel").addEventListener("click", () => finish(false));
+      backdrop.querySelector(".sheet-confirm").addEventListener("click", () => finish(true));
+      backdrop.addEventListener("click", (e) => { if (e.target === backdrop) finish(false); });
+      document.addEventListener("keydown", onKey);
+      document.body.appendChild(backdrop);
+      backdrop.querySelector(".sheet-cancel").focus();
+    });
+  },
 
   // role=status + aria-live=polite so VoiceOver reads the message out
   // without stealing focus from whatever the user was doing.

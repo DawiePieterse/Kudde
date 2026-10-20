@@ -27,6 +27,13 @@ function escapeHtml(s) {
 
 // e.g. "18-27°C, 4mm" - blank when the farm has no position set or the
 // lookup failed for that day, rather than showing a row of dashes.
+// "Cow" / "Cows", "Heifer calf" / "Heifer calves".
+function classPlural(cls, n) {
+  const label = Kudde.classLabel(cls);
+  if (n === 1) return label;
+  return label.endsWith("calf") ? label.replace(/calf$/, "calves") : `${label}s`;
+}
+
 function weatherSummary(e) {
   if (e.weather_temp_min == null && e.weather_temp_max == null) return "";
   const temp = e.weather_temp_min != null && e.weather_temp_max != null
@@ -80,11 +87,35 @@ function renderDashboard() {
   document.getElementById("statDead").textContent = dashboard.herd_counts.dead;
   document.getElementById("statSold").textContent = dashboard.herd_counts.sold;
 
+  const counts = dashboard.class_counts || {};
+  document.getElementById("classCounts").innerHTML = Object.keys(counts).map((cls) => `
+    <div>
+      <div class="text-xl font-bold">${counts[cls]}</div>
+      <div class="text-xs text-slate-500">${escapeHtml(classPlural(cls, counts[cls]))}</div>
+    </div>`).join("");
+
+  const campCounts = dashboard.camp_counts || [];
+  document.getElementById("campCountsEmpty").classList.toggle("hidden", campCounts.length > 0);
+  document.getElementById("campCounts").innerHTML = campCounts.map((c) => `
+    <div class="rounded-lg px-3 py-2 ${c.camp === null ? "bg-amber-50" : "bg-slate-50"}">
+      <span class="font-semibold">${c.camp === null ? "No camp" : escapeHtml(c.camp)}</span>
+      <span class="text-slate-500 ml-1">${c.alive}</span>
+    </div>`).join("");
+
   const needsEl = document.getElementById("needsWeighingList");
   document.getElementById("needsWeighingEmpty").classList.toggle("hidden", dashboard.needs_weighing.length > 0);
   needsEl.innerHTML = dashboard.needs_weighing.map((a) => `
     <div class="flex justify-between items-center py-1 border-b border-slate-100 last:border-0">
       <span><span class="font-semibold">${escapeHtml(a.tag)}</span> ${a.name ? escapeHtml(a.name) : ""}</span>
+      <button class="text-xs text-blue-700 underline view-animal-link" data-tag="${escapeHtml(a.tag)}">View</button>
+    </div>`).join("");
+
+  const withdrawal = dashboard.in_withdrawal || [];
+  document.getElementById("withdrawalCard").classList.toggle("hidden", withdrawal.length === 0);
+  document.getElementById("withdrawalList").innerHTML = withdrawal.map((a) => `
+    <div class="flex justify-between items-center py-1 border-b border-slate-100 last:border-0">
+      <span><span class="font-semibold">${escapeHtml(a.tag)}</span> ${a.name ? escapeHtml(a.name) : ""}
+        <span class="text-slate-500">- clear from ${Kudde.fmtDate(a.until)}</span></span>
       <button class="text-xs text-blue-700 underline view-animal-link" data-tag="${escapeHtml(a.tag)}">View</button>
     </div>`).join("");
 
@@ -95,7 +126,7 @@ function renderDashboard() {
           <i class="fa-solid ${EVENT_ICON[e.kind] || "fa-circle"} event-icon-${e.kind} w-4"></i>
           <div class="flex-1">
             <span class="font-semibold">${escapeHtml(e.tag)}</span>${e.name ? ` ${escapeHtml(e.name)}` : ""}
-            <span class="text-slate-500">- ${escapeHtml(Kudde.eventLabel(e.kind))}${e.value != null ? ` ${Kudde.fmtKg(e.value)}` : ""}${e.location ? `${e.kind === "movement" ? " to " : " in "}${escapeHtml(e.location)}` : ""}</span>
+            <span class="text-slate-500">- ${escapeHtml(Kudde.eventLabel(e.kind))}${e.value != null ? ` ${Kudde.fmtKg(e.value)}` : ""}${e.location ? `${e.kind === "movement" ? " to " : " in "}${escapeHtml(e.location)}` : ""}${e.product ? `: ${escapeHtml(e.product)}` : ""}</span>
           </div>
           <div class="text-xs text-slate-400 text-right">
             <div>${Kudde.fmtDate(e.event_date)}</div>
@@ -117,6 +148,8 @@ function renderDashboard() {
 // ---------------------------------------------------------------------
 
 async function loadAnimals() {
+  await KuddeCamps.load();   // the chips, kept in step with the herd
+  await KuddeProducts.load();
   try {
     animals = await Kudde.api("/api/animals");
     Kudde.setOffline(false);
@@ -131,21 +164,27 @@ async function loadAnimals() {
 function renderHerdTable() {
   const needle = document.getElementById("herdSearchInput").value.trim().toLowerCase();
   const statusFilter = document.getElementById("herdStatusFilter").value;
+  const classFilter = document.getElementById("herdClassFilter").value;
   const filtered = animals.filter((a) => {
     if (statusFilter && a.status !== statusFilter) return false;
+    // "calf" matches every calf class; the rest match the grown class only.
+    if (classFilter === "calf" ? !String(a.class).endsWith("calf") : classFilter && a.class !== classFilter) return false;
     if (!needle) return true;
     return a.tag.toLowerCase().includes(needle) || (a.name || "").toLowerCase().includes(needle);
-  }).sort((x, y) => x.tag.localeCompare(y.tag));
+  }).sort((x, y) => Kudde.compareTags(x.tag, y.tag));
 
   const body = document.getElementById("herdTableBody");
   body.innerHTML = filtered.map((a) => `
     <tr class="border-b last:border-0 hover:bg-slate-50 cursor-pointer" data-tag="${escapeHtml(a.tag)}">
-      <td class="p-3 font-semibold">${escapeHtml(a.tag)}</td>
-      <td class="p-3">${escapeHtml(a.name || "-")}</td>
-      <td class="p-3">${escapeHtml(a.breed || "-")}</td>
-      <td class="p-3">${a.sex === "male" ? "Male" : "Female"}</td>
-      <td class="p-3">${Kudde.fmtDate(a.birth_date, "-")}</td>
-      <td class="p-3"><span class="text-xs font-semibold px-2 py-1 rounded-full status-pill-${a.status}">${STATUS_LABEL[a.status]}</span></td>
+      <td class="p-3 font-semibold herd-tag">${escapeHtml(a.tag)}${a.name ? ` <span class="font-normal text-slate-500 sm:hidden">- ${escapeHtml(a.name)}</span>` : ""}</td>
+      <td class="p-3 herd-name ${a.name ? "" : "herd-empty"}">${escapeHtml(a.name || "-")}</td>
+      <td class="p-3 ${a.breed ? "" : "herd-empty"}" data-label="Breed">${escapeHtml(a.breed || "-")}</td>
+      <td class="p-3" data-label="Class">${escapeHtml(Kudde.classLabel(a.class))}</td>
+      <td class="p-3 ${a.birth_date ? "" : "herd-empty"}" data-label="Born">${Kudde.fmtDate(a.birth_date, "-")}</td>
+      <td class="p-3 ${a.camp ? "" : "herd-empty"}" data-label="Camp">${escapeHtml(a.camp || "-")}</td>
+      <td class="p-3 whitespace-nowrap ${a.last_weight == null ? "herd-empty" : ""}" data-label="Last weight">${a.last_weight == null ? "-"
+        : `${Kudde.fmtKg(a.last_weight)} <span class="text-xs text-slate-400">${Kudde.fmtDate(a.last_weight_date)}</span>`}</td>
+      <td class="p-3 whitespace-nowrap herd-status"><span class="text-xs font-semibold px-2 py-1 rounded-full status-pill-${a.status}">${STATUS_LABEL[a.status]}</span>${Kudde.inWithdrawal(a.withdrawal_until) ? `<div class="mt-1"><span class="withdrawal-pill text-xs font-semibold px-2 py-0.5 rounded-full">Withdrawal to ${Kudde.fmtDate(a.withdrawal_until)}</span></div>` : ""}</td>
     </tr>`).join("");
   document.getElementById("herdEmpty").classList.toggle("hidden", filtered.length > 0);
 
@@ -163,11 +202,22 @@ function fillForm(a) {
   document.getElementById("fTag").disabled = !!a; // the tag is the identity key - not editable once created
   document.getElementById("fName").value = a?.name || "";
   document.getElementById("fSex").value = a?.sex || "female";
+  document.getElementById("fCastrated").checked = !!a?.castrated;
+  syncCastratedRow();
   document.getElementById("fBreed").value = a?.breed || "";
   document.getElementById("fBirthDate").value = a?.birth_date || "";
   document.getElementById("fStatus").value = a?.status || "alive";
   document.getElementById("fSireTag").value = a?.sire_tag || "";
   document.getElementById("fDamTag").value = a?.dam_tag || "";
+  // Only when adding: an existing animal's camp is its history, changed
+  // with a movement event below, not a field on the record.
+  document.getElementById("fCampRow").classList.toggle("hidden", !!a);
+  document.getElementById("fCamp").value = "";
+  if (!a) KuddeCamps.render(document.getElementById("fCampChips"), document.getElementById("fCamp"));
+}
+
+function syncCastratedRow() {
+  document.getElementById("fCastratedRow").classList.toggle("hidden", document.getElementById("fSex").value !== "male");
 }
 
 function openAddAnimal() {
@@ -192,6 +242,7 @@ async function openEditAnimal(tag) {
   document.getElementById("animalPhotosSection").classList.remove("hidden");
   document.getElementById("animalEventsSection").classList.remove("hidden");
   document.getElementById("newEventDate").value = Kudde.localDateStr();
+  syncEventForm();
   showAnimalModal();
   await refreshPhotosList();
   await refreshEventsList();
@@ -211,11 +262,16 @@ async function refreshPhotosList() {
         <button class="delete-photo-btn absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-black/60 text-white text-xs flex items-center justify-center" data-id="${p.id}">
           <i class="fa-solid fa-xmark"></i>
         </button>`;
-      thumb.querySelector("img").addEventListener("click", () => window.open(p.url, "_blank"));
+      thumb.querySelector("img").addEventListener("click", () => {
+        document.getElementById("photoViewerImg").src = p.url;
+        document.getElementById("photoViewer").classList.remove("hidden");
+        document.getElementById("photoViewer").classList.add("flex");
+      });
       thumb.querySelector(".delete-photo-btn").addEventListener("click", async () => {
         // A deleted photo has no undo, and the x is small enough to hit
         // while aiming for the photo itself.
-        if (!confirm(`Delete this photo of ${editingTag}? This can't be undone.`)) return;
+        if (!await Kudde.confirm({ title: `Delete this photo of ${editingTag}?`, message: "This can't be undone.",
+                                   confirmLabel: "Delete", danger: true })) return;
         try {
           await Kudde.api(`/api/photos/${p.id}`, { method: "DELETE" });
         } catch (e) {
@@ -267,7 +323,7 @@ async function refreshEventsList() {
             <i class="fa-solid ${EVENT_ICON[e.kind] || "fa-circle"} event-icon-${e.kind} w-4"></i>
             <div class="flex-1">
               <span class="font-medium">${escapeHtml(Kudde.eventLabel(e.kind))}</span>
-              ${e.value != null ? ` - ${Kudde.fmtKg(e.value)}` : ""}${e.location ? ` - ${escapeHtml(e.location)}` : ""}
+              ${e.value != null ? ` - ${Kudde.fmtKg(e.value)}` : ""}${e.location ? ` - ${escapeHtml(e.location)}` : ""}${Kudde.treatmentSummary(e) ? ` - ${escapeHtml(Kudde.treatmentSummary(e))}` : ""}
               ${e.note ? `<div class="text-xs text-slate-500">${escapeHtml(e.note)}</div>` : ""}
             </div>
             <div class="text-xs text-slate-400 text-right">
@@ -289,6 +345,7 @@ async function saveAnimal() {
     name: document.getElementById("fName").value.trim(),
     breed: document.getElementById("fBreed").value.trim(),
     sex: document.getElementById("fSex").value,
+    castrated: document.getElementById("fSex").value === "male" && document.getElementById("fCastrated").checked,
     birth_date: document.getElementById("fBirthDate").value || null,
     sire_tag: document.getElementById("fSireTag").value.trim() || null,
     dam_tag: document.getElementById("fDamTag").value.trim() || null,
@@ -300,6 +357,7 @@ async function saveAnimal() {
       await Kudde.api(`/api/animals/${encodeURIComponent(editingTag)}`, { method: "PATCH", body: fields });
     } else {
       if (animals.some((a) => a.tag === tag)) { Kudde.toast(`Tag ${tag} is already in use`); return; }
+      fields.camp = document.getElementById("fCamp").value.trim() || null;
       await Kudde.api("/api/animals", { method: "POST", body: { tag, ...fields } });
     }
     Kudde.setOffline(false);
@@ -313,6 +371,47 @@ async function saveAnimal() {
   Kudde.toast("Saved");
   await loadAnimals();
   await loadDashboard();
+}
+
+// The last weighing and the change since, under the kg box - the same
+// nudge the Field app gives, so a mistyped weight is caught at the desk
+// too. Kept simpler than Field's: no per-day rate, the office has the
+// history list right above it.
+function showWeightHint() {
+  const el = document.getElementById("newEventValueHint");
+  const animal = animals.find((a) => a.tag === editingTag);
+  if (!animal || animal.last_weight == null) { el.textContent = animal ? "First weighing" : ""; el.classList.remove("hint-warn"); return; }
+  let text = `Last ${Kudde.fmtKg(animal.last_weight)} on ${Kudde.fmtDate(animal.last_weight_date)}`;
+  const value = parseFloat(document.getElementById("newEventValue").value);
+  let warn = false;
+  if (value > 0) {
+    const diff = value - animal.last_weight;
+    const pct = Math.abs(diff) / animal.last_weight;
+    text += ` \u00b7 ${diff >= 0 ? "+" : "-"}${Math.abs(diff).toLocaleString(Kudde.LOCALE, { maximumFractionDigits: 1 })} kg`;
+    if (pct > 0.3) { text += ` \u00b7 check: ${Math.round(pct * 100)}% ${diff < 0 ? "lighter" : "heavier"} than last time`; warn = true; }
+  }
+  el.textContent = text;
+  el.classList.toggle("hint-warn", warn);
+}
+
+// Which of the event form's boxes apply to the chosen kind. The kg box is
+// a weighing's; the camp is a movement's or a birth's (the camp it was born
+// in). Everything else gets date and note only.
+function syncEventForm() {
+  const kind = document.getElementById("newEventKind").value;
+  document.getElementById("newEventValueRow").classList.toggle("hidden", kind !== "weight");
+  if (kind === "weight") showWeightHint();
+  document.getElementById("newEventTreatmentRows").classList.toggle("hidden", kind !== "treatment");
+  if (kind === "treatment") {
+    KuddeProducts.render(document.getElementById("newEventProductChips"), {
+      product: document.getElementById("newEventProduct"), dose: document.getElementById("newEventDose"),
+      withdrawal: document.getElementById("newEventWithdrawal") });
+  }
+  const placing = kind === "movement" || kind === "birth";
+  document.getElementById("newEventLocationRow").classList.toggle("hidden", !placing);
+  if (placing) {
+    KuddeCamps.render(document.getElementById("newEventLocationChips"), document.getElementById("newEventLocation"));
+  }
 }
 
 async function addEvent() {
@@ -331,7 +430,15 @@ async function addEvent() {
   // picked from a dropdown that is easy to leave on the wrong entry.
   if (kind === "death" || kind === "sale") {
     const label = kind === "death" ? "dead" : "sold";
-    if (!confirm(`Record ${editingTag} as ${label}? It will be marked ${STATUS_LABEL[label]} and leave the live herd.`)) return;
+    const animal = animals.find((a) => a.tag === editingTag);
+    const warning = kind === "sale" && animal && Kudde.inWithdrawal(animal.withdrawal_until)
+      ? `${editingTag} is in withdrawal until ${Kudde.fmtDate(animal.withdrawal_until)} and should not be slaughtered before then.` : "";
+    const ok = await Kudde.confirm({
+      title: `Record ${editingTag} as ${label}?`,
+      message: `It will be marked ${STATUS_LABEL[label]} and leave the live herd.`,
+      warning, danger: true, confirmLabel: kind === "death" ? "Record death" : "Record sale",
+    });
+    if (!ok) return;
   }
 
   const payload = {
@@ -341,7 +448,15 @@ async function addEvent() {
     value,
     location: document.getElementById("newEventLocation").value.trim(),
     note: document.getElementById("newEventNote").value.trim(),
+    product: document.getElementById("newEventProduct").value.trim(),
+    dose: document.getElementById("newEventDose").value.trim(),
+    withdrawal_days: /^\d+$/.test(document.getElementById("newEventWithdrawal").value.trim())
+      ? parseInt(document.getElementById("newEventWithdrawal").value, 10) : null,
   };
+  if (kind === "treatment" && payload.withdrawal_days === null
+      && document.getElementById("newEventWithdrawal").value.trim() !== "") {
+    Kudde.toast("Withdrawal must be a whole number of days"); return;
+  }
 
   try {
     await Kudde.api("/api/events", { method: "POST", body: payload });
@@ -352,10 +467,13 @@ async function addEvent() {
     return;
   }
 
-  document.getElementById("newEventValue").value = "";
-  document.getElementById("newEventLocation").value = "";
-  document.getElementById("newEventNote").value = "";
-  Kudde.toast("Event recorded");
+  const newCamp = payload.location && !KuddeCamps.isKnown(payload.location) ? payload.location : null;
+  for (const id of ["newEventValue", "newEventLocation", "newEventNote", "newEventProduct", "newEventDose", "newEventWithdrawal"]) {
+    document.getElementById(id).value = "";
+  }
+  if (kind === "treatment") { KuddeProducts.remember({ product: payload.product, dose: payload.dose, withdrawal_days: payload.withdrawal_days }); syncEventForm(); }
+  Kudde.toast(newCamp ? `Event recorded - new camp ${newCamp} added to Settings` : "Event recorded");
+  if (newCamp) { await KuddeCamps.load(); syncEventForm(); }
   await refreshEventsList();
   await loadAnimals();   // a sale/death event may have changed this animal's status
   await loadDashboard();
@@ -539,13 +657,122 @@ async function saveFarm() {
 }
 
 // ---------------------------------------------------------------------
+// Settings tab: camps
+// ---------------------------------------------------------------------
+
+let camps = [];   // every camp, archived included, as /api/camps returns them
+
+async function loadCamps() {
+  try {
+    camps = await Kudde.api("/api/camps?include_archived=true");
+    Kudde.setOffline(false);
+  } catch (e) {
+    if (!Kudde.isNetworkError(e)) throw e;
+    Kudde.setOffline(true);
+    return;
+  }
+  renderCamps();
+}
+
+function renderCamps() {
+  const active = camps.filter((c) => !c.archived);
+  const archived = camps.filter((c) => c.archived);
+  document.getElementById("campsEmpty").classList.toggle("hidden", active.length > 0);
+
+  const held = (c) => c.alive_count ? `${c.alive_count} animal${c.alive_count === 1 ? "" : "s"}` : "empty";
+  document.getElementById("campsList").innerHTML = active.map((c, i) => `
+    <div class="flex items-center gap-2 py-2" data-id="${c.id}">
+      <div class="flex-1 min-w-0">
+        <span class="font-semibold">${escapeHtml(c.name)}</span>
+        <span class="text-xs text-slate-500 ml-2">${held(c)}</span>
+      </div>
+      <button class="camp-up text-slate-500 px-2 py-1 rounded hover:bg-slate-100" title="Move up" ${i === 0 ? "disabled" : ""}><i class="fa-solid fa-chevron-up"></i></button>
+      <button class="camp-down text-slate-500 px-2 py-1 rounded hover:bg-slate-100" title="Move down" ${i === active.length - 1 ? "disabled" : ""}><i class="fa-solid fa-chevron-down"></i></button>
+      <button class="camp-rename text-slate-500 px-2 py-1 rounded hover:bg-slate-100" title="Rename"><i class="fa-solid fa-pen"></i></button>
+      <button class="camp-archive text-slate-500 px-2 py-1 rounded hover:bg-slate-100" title="Archive" ${c.alive_count ? "disabled" : ""}><i class="fa-solid fa-box-archive"></i></button>
+    </div>`).join("");
+
+  document.getElementById("archivedCamps").classList.toggle("hidden", archived.length === 0);
+  document.getElementById("archivedCampsList").innerHTML = archived.map((c) => `
+    <div class="flex items-center gap-2 py-2" data-id="${c.id}">
+      <span class="flex-1 text-slate-500">${escapeHtml(c.name)}</span>
+      <button class="camp-restore text-xs text-blue-700 underline">Restore</button>
+    </div>`).join("");
+
+  const idOf = (el) => parseInt(el.closest("[data-id]").dataset.id, 10);
+  for (const btn of document.querySelectorAll(".camp-up")) btn.addEventListener("click", () => shiftCamp(idOf(btn), -1));
+  for (const btn of document.querySelectorAll(".camp-down")) btn.addEventListener("click", () => shiftCamp(idOf(btn), 1));
+  for (const btn of document.querySelectorAll(".camp-rename")) btn.addEventListener("click", () => renameCamp(idOf(btn)));
+  for (const btn of document.querySelectorAll(".camp-archive")) btn.addEventListener("click", () => setCampArchived(idOf(btn), true));
+  for (const btn of document.querySelectorAll(".camp-restore")) btn.addEventListener("click", () => setCampArchived(idOf(btn), false));
+}
+
+// Every camp change goes through here: one error path, and the chips
+// everywhere else are reloaded so a camp renamed in Settings is the one the
+// Move picker offers a moment later.
+async function campRequest(path, options) {
+  try {
+    await Kudde.api(path, options);
+    Kudde.setOffline(false);
+  } catch (e) {
+    if (Kudde.isNetworkError(e)) { Kudde.setOffline(true); Kudde.toast("Offline - could not save"); return false; }
+    Kudde.toast(Kudde.errorDetail(e));
+    return false;
+  }
+  await loadCamps();
+  await KuddeCamps.load();
+  return true;
+}
+
+async function addCamp() {
+  const input = document.getElementById("newCampName");
+  const name = input.value.trim();
+  if (!name) { Kudde.toast("Type the camp's name"); return; }
+  if (await campRequest("/api/camps", { method: "POST", body: { name } })) input.value = "";
+}
+
+async function renameCamp(id) {
+  const camp = camps.find((c) => c.id === id);
+  if (!camp) return;
+  // A native prompt, as the siblings use confirm(): one camp name is not
+  // worth a form of its own, and it reads the same on every browser.
+  const name = prompt("Rename camp", camp.name);
+  if (name === null || !name.trim() || name.trim() === camp.name) return;
+  await campRequest(`/api/camps/${id}`, { method: "PATCH", body: { name: name.trim() } });
+}
+
+async function setCampArchived(id, archived) {
+  await campRequest(`/api/camps/${id}`, { method: "PATCH", body: { archived } });
+}
+
+async function shiftCamp(id, delta) {
+  const ids = camps.filter((c) => !c.archived).map((c) => c.id);
+  const at = ids.indexOf(id);
+  const to = at + delta;
+  if (at < 0 || to < 0 || to >= ids.length) return;
+  ids.splice(at, 1);
+  ids.splice(to, 0, id);
+  await campRequest("/api/camps/order", { method: "PUT", body: { ids } });
+}
+
+// ---------------------------------------------------------------------
 // Move camp (bulk movement)
 // ---------------------------------------------------------------------
 
 let moveLocations = [];        // last /api/locations response
 let moveSelectedLocation = null;
+let groupMode = "move";        // "move" or "treat": what step two does with the picked camp
 
-async function openMoveModal() {
+async function openMoveModal() { await openGroupModal("move"); }
+async function openTreatModal() { await openGroupModal("treat"); }
+
+// Move camp and Treat group share step one (pick the camp, tick the
+// animals) and differ only in what is recorded, so one modal serves both.
+async function openGroupModal(mode) {
+  groupMode = mode;
+  document.getElementById("groupTitle").textContent = mode === "move" ? "Move camp" : "Treat group";
+  document.getElementById("groupHint").textContent = mode === "move"
+    ? "Pick the camp everyone is moving from" : "Pick the camp the group is in";
   let data;
   try {
     data = await Kudde.api("/api/locations");
@@ -560,6 +787,7 @@ async function openMoveModal() {
   renderMoveLocations();
   document.getElementById("moveLocationsView").classList.remove("hidden");
   document.getElementById("moveAnimalsView").classList.add("hidden");
+  document.getElementById("treatAnimalsView").classList.add("hidden");
   document.getElementById("moveModal").classList.remove("hidden");
   document.getElementById("moveModal").classList.add("flex");
 }
@@ -567,24 +795,36 @@ async function openMoveModal() {
 function renderMoveLocations() {
   const list = document.getElementById("moveLocationsList");
   document.getElementById("moveLocationsEmpty").classList.toggle("hidden", moveLocations.length > 0);
-  list.innerHTML = moveLocations.map((loc) => `
-    <button class="w-full text-left bg-slate-50 hover:bg-slate-100 rounded-lg p-3 flex items-center justify-between move-location-btn" data-location="${escapeHtml(loc.location)}">
-      <span class="font-semibold">${escapeHtml(loc.location)}</span>
-      <span class="text-xs text-slate-500">${loc.animals.length} animal${loc.animals.length === 1 ? "" : "s"}</span>
-    </button>`).join("");
+  // The whole farm, as the Field app shows it: empty camps greyed (nothing
+  // to move from), and the animals with no camp yet as the last row so
+  // they can be moved INTO one.
+  list.innerHTML = moveLocations.map((loc, i) => {
+    const n = loc.animals.length;
+    const label = loc.location === null ? "No camp yet" : loc.location;
+    return `
+    <button class="w-full text-left rounded-lg p-3 flex items-center justify-between move-location-btn ${n ? "bg-slate-50 hover:bg-slate-100" : "bg-slate-50 opacity-50"}"
+            data-index="${i}" ${n ? "" : "disabled"}>
+      <span class="font-semibold ${loc.location === null ? "italic" : ""}">${escapeHtml(label)}</span>
+      <span class="text-xs text-slate-500">${n ? `${n} animal${n === 1 ? "" : "s"}` : "empty"}</span>
+    </button>`;
+  }).join("");
   list.querySelectorAll(".move-location-btn").forEach((btn) => {
-    btn.addEventListener("click", () => openMoveAnimals(btn.dataset.location));
+    btn.addEventListener("click", () => openMoveAnimals(parseInt(btn.dataset.index, 10)));
   });
 }
 
-function openMoveAnimals(location) {
-  moveSelectedLocation = moveLocations.find((l) => l.location === location);
+function openMoveAnimals(index) {
+  moveSelectedLocation = moveLocations[index];
   if (!moveSelectedLocation) return;
+  if (groupMode === "treat") { openTreatAnimals(); return; }
 
-  document.getElementById("moveFromLocation").textContent = location;
+  document.getElementById("moveFromLocation").textContent = moveSelectedLocation.location === null
+    ? "no camp" : moveSelectedLocation.location;
   document.getElementById("moveDate").value = Kudde.localDateStr();
   document.getElementById("moveToLocation").value = "";
   document.getElementById("moveNote").value = "";
+  KuddeCamps.render(document.getElementById("moveToChips"), document.getElementById("moveToLocation"),
+                    { exclude: moveSelectedLocation.location });
   renderMoveAnimals();
   document.getElementById("moveLocationsView").classList.add("hidden");
   document.getElementById("moveAnimalsView").classList.remove("hidden");
@@ -598,7 +838,53 @@ function renderMoveAnimals() {
     </label>`).join("");
 }
 
+function openTreatAnimals() {
+  document.getElementById("treatFromLocation").textContent = moveSelectedLocation.location === null
+    ? "the animals with no camp" : moveSelectedLocation.location;
+  document.getElementById("treatDate").value = Kudde.localDateStr();
+  for (const id of ["treatProduct", "treatDose", "treatWithdrawal", "treatNote"]) document.getElementById(id).value = "";
+  KuddeProducts.render(document.getElementById("treatProductChips"), {
+    product: document.getElementById("treatProduct"), dose: document.getElementById("treatDose"),
+    withdrawal: document.getElementById("treatWithdrawal") });
+  document.getElementById("treatAnimalsList").innerHTML = moveSelectedLocation.animals.map((a) => `
+    <label class="flex items-center gap-2 py-1">
+      <input type="checkbox" class="treat-animal-check w-4 h-4" data-tag="${escapeHtml(a.tag)}" checked>
+      <span>${escapeHtml(a.tag)}${a.name ? ` - ${escapeHtml(a.name)}` : ""}</span>
+    </label>`).join("");
+  document.getElementById("moveLocationsView").classList.add("hidden");
+  document.getElementById("treatAnimalsView").classList.remove("hidden");
+}
+
+async function confirmTreat() {
+  const tags = Array.from(document.querySelectorAll(".treat-animal-check:checked")).map((el) => el.dataset.tag);
+  if (!tags.length) { Kudde.toast("Select at least one animal"); return; }
+  const eventDate = document.getElementById("treatDate").value;
+  if (!eventDate) { Kudde.toast("Date is required"); return; }
+  const product = document.getElementById("treatProduct").value.trim();
+  if (!product) { Kudde.toast("Say what the product is"); return; }
+  const rawDays = document.getElementById("treatWithdrawal").value.trim();
+  const withdrawal_days = /^\d+$/.test(rawDays) ? parseInt(rawDays, 10) : null;
+  if (rawDays && withdrawal_days === null) { Kudde.toast("Withdrawal must be a whole number of days"); return; }
+
+  const payload = { tags, event_date: eventDate, product, dose: document.getElementById("treatDose").value.trim(),
+                    withdrawal_days, note: document.getElementById("treatNote").value.trim() };
+  try {
+    await Kudde.api("/api/events/treatment/bulk", { method: "POST", body: payload });
+    Kudde.setOffline(false);
+  } catch (e) {
+    if (Kudde.isNetworkError(e)) { Kudde.setOffline(true); Kudde.toast("Offline - could not save"); return; }
+    Kudde.toast(Kudde.errorDetail(e));
+    return;
+  }
+  KuddeProducts.remember({ product, dose: payload.dose, withdrawal_days });
+  closeMoveModal();
+  Kudde.toast(`Treated ${tags.length} animal${tags.length === 1 ? "" : "s"} with ${product}`);
+  await loadAnimals();
+  await loadDashboard();
+}
+
 function backToMoveLocations() {
+  document.getElementById("treatAnimalsView").classList.add("hidden");
   document.getElementById("moveAnimalsView").classList.add("hidden");
   document.getElementById("moveLocationsView").classList.remove("hidden");
   moveSelectedLocation = null;
@@ -616,7 +902,8 @@ async function confirmMove() {
   const eventDate = document.getElementById("moveDate").value;
   if (!eventDate) { Kudde.toast("Date is required"); return; }
   const location = document.getElementById("moveToLocation").value.trim();
-  if (!location) { Kudde.toast("New location is required"); return; }
+  if (!location) { Kudde.toast("Pick the camp they are moving to"); return; }
+  const newCamp = KuddeCamps.isKnown(location) ? null : location;
 
   const payload = { tags, event_date: eventDate, location, note: document.getElementById("moveNote").value.trim() };
 
@@ -630,9 +917,11 @@ async function confirmMove() {
   }
 
   closeMoveModal();
-  Kudde.toast(`Moved ${tags.length} animal${tags.length === 1 ? "" : "s"} to ${location}`);
+  Kudde.toast(`Moved ${tags.length} animal${tags.length === 1 ? "" : "s"} to ${location}`
+    + (newCamp ? " (new camp added to Settings)" : ""));
   await loadAnimals();
   await loadDashboard();
+  if (newCamp) await loadCamps();
 }
 
 // ---------------------------------------------------------------------
@@ -651,18 +940,32 @@ async function init() {
   wireTabs();
   document.getElementById("herdSearchInput").addEventListener("input", renderHerdTable);
   document.getElementById("herdStatusFilter").addEventListener("change", renderHerdTable);
+  document.getElementById("herdClassFilter").addEventListener("change", renderHerdTable);
+  document.getElementById("fSex").addEventListener("change", syncCastratedRow);
   document.getElementById("addAnimalBtn").addEventListener("click", openAddAnimal);
   document.getElementById("cancelAnimalBtn").addEventListener("click", closeAnimalModal);
   document.getElementById("saveAnimalBtn").addEventListener("click", saveAnimal);
   document.getElementById("addEventBtn").addEventListener("click", addEvent);
+  document.getElementById("newEventKind").addEventListener("change", syncEventForm);
+  document.getElementById("newEventValue").addEventListener("input", showWeightHint);
+  document.getElementById("addCampBtn").addEventListener("click", addCamp);
+  document.getElementById("newCampName").addEventListener("keydown", (e) => { if (e.key === "Enter") addCamp(); });
   document.getElementById("useMyLocationBtn").addEventListener("click", useCurrentLocation);
   document.getElementById("saveFarmBtn").addEventListener("click", saveFarm);
   document.getElementById("fGpsLat").addEventListener("change", syncMarkerFromInputs);
   document.getElementById("fGpsLng").addEventListener("change", syncMarkerFromInputs);
   document.getElementById("moveCampBtn").addEventListener("click", openMoveModal);
+  document.getElementById("treatGroupBtn").addEventListener("click", openTreatModal);
+  document.getElementById("backTreatBtn").addEventListener("click", backToMoveLocations);
+  document.getElementById("confirmTreatBtn").addEventListener("click", confirmTreat);
   document.getElementById("cancelMoveBtn").addEventListener("click", closeMoveModal);
   document.getElementById("backMoveBtn").addEventListener("click", backToMoveLocations);
   document.getElementById("confirmMoveBtn").addEventListener("click", confirmMove);
+  document.getElementById("photoViewer").addEventListener("click", () => {
+    document.getElementById("photoViewer").classList.add("hidden");
+    document.getElementById("photoViewer").classList.remove("flex");
+    document.getElementById("photoViewerImg").src = "";
+  });
   document.getElementById("addPhotoBtn").addEventListener("click", () => {
     document.getElementById("photoInput").click();
   });
@@ -678,6 +981,7 @@ async function init() {
   await loadAnimals();
   await loadDashboard();
   await loadFarm();
+  await loadCamps();
   // Last, and not awaited by anything above it: the herd is what this screen
   // is for, and a slow or missing version endpoint must not hold it up.
   loadServerVersion().catch(() => {});
