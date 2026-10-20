@@ -9,23 +9,8 @@ const KuddeProducts = {
   STORAGE_KEY: "kudde_products",
   list: [],
 
-  _readCache() {
-    try {
-      const parsed = JSON.parse(localStorage.getItem(KuddeProducts.STORAGE_KEY) || "[]");
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (_) { return []; }
-  },
-
   async load() {
-    try {
-      KuddeProducts.list = await Kudde.api("/api/products");
-      try { localStorage.setItem(KuddeProducts.STORAGE_KEY, JSON.stringify(KuddeProducts.list)); } catch (_) { /* full or private */ }
-      Kudde.setOffline(false);
-    } catch (e) {
-      if (!Kudde.isNetworkError(e)) throw e;
-      Kudde.setOffline(true);
-      KuddeProducts.list = KuddeProducts._readCache();
-    }
+    KuddeProducts.list = await Kudde.cachedList(KuddeProducts.STORAGE_KEY, "/api/products");
     return KuddeProducts.list;
   },
 
@@ -54,9 +39,21 @@ const KuddeProducts = {
         inputs.dose.value = p.dose || "";
         inputs.withdrawal.value = p.withdrawal_days == null ? "" : p.withdrawal_days;
         container.querySelectorAll(".chip").forEach((c) => c.classList.toggle("active", c === el));
-        if (typeof inputs.onPick === "function") inputs.onPick();
       });
       container.appendChild(el);
     }
+  },
+
+  // The three treatment boxes as the server wants them, from the same
+  // {product, dose, withdrawal} inputs render() fills. A blank withdrawal
+  // is null (none recorded), not zero - zero means "may be sold today" -
+  // and anything else that is not a whole number of days is refused here,
+  // with the toast, so every form checks it the same way. Returns the
+  // fields, or null after toasting.
+  read(inputs) {
+    const raw = inputs.withdrawal.value.trim();
+    const days = /^\d+$/.test(raw) ? parseInt(raw, 10) : null;
+    if (raw && days === null) { Kudde.toast("Withdrawal must be a whole number of days"); return null; }
+    return { product: inputs.product.value.trim(), dose: inputs.dose.value.trim(), withdrawal_days: days };
   },
 };

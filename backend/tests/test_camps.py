@@ -5,20 +5,7 @@ import sqlite3
 from sqlmodel import create_engine
 
 import migrate
-from tests.conftest import RECENTLY
-
-
-def _add(client, tag, **extra):
-    r = client.post("/api/animals", json={"tag": tag, "sex": "female", **extra})
-    assert r.status_code == 200, r.text
-    return r.json()
-
-
-def _move(client, tags, location, on=RECENTLY):
-    r = client.post("/api/events/movement/bulk",
-                    json={"tags": tags, "event_date": on.isoformat(), "location": location})
-    assert r.status_code == 200, r.text
-    return r.json()
+from tests.conftest import RECENTLY, add_animal as _add, move as _move
 
 
 def test_camps_are_created_renamed_ordered_and_archived(client):

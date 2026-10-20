@@ -16,12 +16,9 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 from sqlmodel import Session, select
 
-from classes import animal_class, calved_animal_ids
 from db import get_session
+from herd import herd_context
 from models import Animal, Event
-from routers.animals import _last_weights
-from routers.events import _current_locations, withdrawal_until
-from tags import tag_sort_key
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
@@ -42,23 +39,19 @@ def _csv_response(filename: str, header: list, rows) -> Response:
 
 @router.get("/animals.csv")
 def export_animals(session: Session = Depends(get_session)):
-    animals = sorted(session.exec(select(Animal)).all(), key=lambda a: tag_sort_key(a.tag))
-    weights = _last_weights(session)
-    camps = _current_locations(session)
-    withdrawal = withdrawal_until(session)
-    calved = calved_animal_ids(session)
+    ctx = herd_context(session)
 
     def row(a: Animal):
-        value, on = weights.get(a.id, (None, None))
-        return [a.tag, a.name, a.breed, a.sex.value, animal_class(a, a.id in calved),
+        d = ctx.describe(a)
+        return [a.tag, a.name, a.breed, a.sex.value, d["class"],
                 "yes" if a.castrated else "", a.birth_date, a.sire_tag, a.dam_tag, a.status.value,
-                camps.get(a.id) or "", value, on, withdrawal.get(a.id)]
+                d["camp"] or "", d["last_weight"], d["last_weight_date"], d["withdrawal_until"]]
 
     return _csv_response("kudde-animals",
                          ["tag", "name", "breed", "sex", "class", "castrated", "birth_date", "sire_tag",
                           "dam_tag", "status", "camp", "last_weight_kg", "last_weight_date",
                           "withdrawal_until"],
-                         (row(a) for a in animals))
+                         (row(a) for a in ctx.animals))
 
 
 @router.get("/events.csv")

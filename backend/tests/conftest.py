@@ -109,3 +109,20 @@ def herd(client):
     client.post("/api/events", json={"tag": "C3", "kind": "sale",
                                      "event_date": RECENTLY.isoformat(), "note": "Vleissentraal"})
     return client
+
+
+def add_animal(client, tag, **fields):
+    """Put one animal in the herd: female unless told otherwise, and
+    asserted to have landed, so a test that then records against it is
+    not chasing a 404 of its own making."""
+    r = client.post("/api/animals", json={"tag": tag, "sex": "female", **fields})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def move(client, tags, location, on=None):
+    """One camp move for `tags`, the way the apps record it."""
+    r = client.post("/api/events/movement/bulk",
+                    json={"tags": tags, "event_date": (on or RECENTLY).isoformat(), "location": location})
+    assert r.status_code == 200, r.text
+    return r.json()

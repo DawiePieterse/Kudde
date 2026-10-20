@@ -4,9 +4,7 @@ from datetime import date, timedelta
 TODAY = date.today()
 
 
-def _add(client, tag, **fields):
-    r = client.post("/api/animals", json={"tag": tag, "sex": "female", **fields})
-    assert r.status_code == 200, r.text
+from tests.conftest import add_animal as _add
 
 
 def _classes(client):

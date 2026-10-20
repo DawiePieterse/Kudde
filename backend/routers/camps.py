@@ -6,10 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import field_validator
 from sqlmodel import Session, SQLModel, select
 
-from campnames import find_camp, next_sort_order, normalise_camp_name
+from campnames import ensure_camp, find_camp, fold, normalise_camp_name
 from db import get_session
+from herd import current_locations
 from models import Animal, AnimalStatus, Camp
-from routers.events import _current_locations
 
 router = APIRouter(prefix="/api/camps", tags=["camps"])
 
@@ -49,18 +49,17 @@ def _alive_counts(session: Session) -> dict:
     """Alive animals per camp name, by the same derivation the Move picker
     uses, keyed by the folded name so a count finds its camp whatever was
     typed on the events."""
-    where = _current_locations(session)
+    where = current_locations(session)
     counts: dict = {}
     for animal in session.exec(select(Animal).where(Animal.status == AnimalStatus.alive)).all():
         location = where.get(animal.id)
         if location:
-            key = normalise_camp_name(location).casefold()
-            counts[key] = counts.get(key, 0) + 1
+            counts[fold(location)] = counts.get(fold(location), 0) + 1
     return counts
 
 
 def _present(camp: Camp, counts: dict) -> dict:
-    return {**camp.model_dump(), "alive_count": counts.get(camp.name.casefold(), 0)}
+    return {**camp.model_dump(), "alive_count": counts.get(fold(camp.name), 0)}
 
 
 @router.get("")
@@ -78,16 +77,9 @@ def create_camp(payload: CampCreate, session: Session = Depends(get_session)):
     existing = find_camp(session, payload.name)
     if existing is not None and not existing.archived:
         raise HTTPException(409, f"There is already a camp called {existing.name}")
-    if existing is not None:
-        # Adding a camp that was archived brings it back under its old row,
-        # so the events that named it and this entry stay one camp.
-        existing.archived = False
-        session.add(existing)
-        session.commit()
-        session.refresh(existing)
-        return _present(existing, _alive_counts(session))
-    camp = Camp(name=payload.name, sort_order=next_sort_order(session))
-    session.add(camp)
+    # ensure_camp makes the row, or restores an archived one under its old
+    # row so the events that named it and this entry stay one camp.
+    camp = ensure_camp(session, payload.name)
     session.commit()
     session.refresh(camp)
     return _present(camp, _alive_counts(session))
@@ -105,9 +97,10 @@ def update_camp(camp_id: int, payload: CampUpdate, session: Session = Depends(ge
         # A rename rewrites no events: history keeps the name it was recorded
         # under, and the pickers show the new one from now on.
         camp.name = payload.name
+    counts = _alive_counts(session)
     if payload.archived is not None:
         if payload.archived and not camp.archived:
-            held = _alive_counts(session).get(camp.name.casefold(), 0)
+            held = counts.get(fold(camp.name), 0)
             if held:
                 raise HTTPException(
                     409, f"{camp.name} still holds {held} animal{'' if held == 1 else 's'} - move them first")
@@ -115,7 +108,7 @@ def update_camp(camp_id: int, payload: CampUpdate, session: Session = Depends(ge
     session.add(camp)
     session.commit()
     session.refresh(camp)
-    return _present(camp, _alive_counts(session))
+    return _present(camp, counts)
 
 
 @router.put("/order")

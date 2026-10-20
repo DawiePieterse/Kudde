@@ -1,10 +1,9 @@
 """A calving: the cow's birth event and the new calf, as one record."""
-from tests.conftest import RECENTLY
+from tests.conftest import RECENTLY, add_animal
 
 
 def _cow(client, tag="C1", **extra):
-    r = client.post("/api/animals", json={"tag": tag, "sex": "female", "breed": "Nguni", **extra})
-    assert r.status_code == 200, r.text
+    add_animal(client, tag, breed="Nguni", **extra)
 
 
 def _calve(client, **override):

@@ -148,10 +148,14 @@ function renderDashboard() {
 // ---------------------------------------------------------------------
 
 async function loadAnimals() {
-  await KuddeCamps.load();   // the chips, kept in step with the herd
-  await KuddeProducts.load();
+  // The chips' lists ride along with the herd, asked for together.
+  const [, , herd] = await Promise.all([
+    KuddeCamps.load(), KuddeProducts.load(),
+    Kudde.api("/api/animals").then((list) => ({ list })).catch((e) => ({ error: e })),
+  ]);
   try {
-    animals = await Kudde.api("/api/animals");
+    if (herd.error) throw herd.error;
+    animals = herd.list;
     Kudde.setOffline(false);
   } catch (e) {
     if (!Kudde.isNetworkError(e)) throw e;
@@ -369,8 +373,7 @@ async function saveAnimal() {
 
   closeAnimalModal();
   Kudde.toast("Saved");
-  await loadAnimals();
-  await loadDashboard();
+  await Promise.all([loadAnimals(), loadDashboard()]);
 }
 
 // The last weighing and the change since, under the kg box - the same
@@ -378,21 +381,18 @@ async function saveAnimal() {
 // too. Kept simpler than Field's: no per-day rate, the office has the
 // history list right above it.
 function showWeightHint() {
-  const el = document.getElementById("newEventValueHint");
-  const animal = animals.find((a) => a.tag === editingTag);
-  if (!animal || animal.last_weight == null) { el.textContent = animal ? "First weighing" : ""; el.classList.remove("hint-warn"); return; }
-  let text = `Last ${Kudde.fmtKg(animal.last_weight)} on ${Kudde.fmtDate(animal.last_weight_date)}`;
-  const value = parseFloat(document.getElementById("newEventValue").value);
-  let warn = false;
-  if (value > 0) {
-    const diff = value - animal.last_weight;
-    const pct = Math.abs(diff) / animal.last_weight;
-    text += ` \u00b7 ${diff >= 0 ? "+" : "-"}${Math.abs(diff).toLocaleString(Kudde.LOCALE, { maximumFractionDigits: 1 })} kg`;
-    if (pct > 0.3) { text += ` \u00b7 check: ${Math.round(pct * 100)}% ${diff < 0 ? "lighter" : "heavier"} than last time`; warn = true; }
-  }
-  el.textContent = text;
-  el.classList.toggle("hint-warn", warn);
+  Kudde.showWeightHint(document.getElementById("newEventValueHint"),
+                       animals.find((a) => a.tag === editingTag),
+                       document.getElementById("newEventValue").value);
 }
+
+// The event form's treatment boxes, as KuddeProducts fills and reads them.
+const EVENT_TREATMENT_INPUTS = () => ({
+  product: document.getElementById("newEventProduct"), dose: document.getElementById("newEventDose"),
+  withdrawal: document.getElementById("newEventWithdrawal") });
+const GROUP_TREATMENT_INPUTS = () => ({
+  product: document.getElementById("treatProduct"), dose: document.getElementById("treatDose"),
+  withdrawal: document.getElementById("treatWithdrawal") });
 
 // Which of the event form's boxes apply to the chosen kind. The kg box is
 // a weighing's; the camp is a movement's or a birth's (the camp it was born
@@ -402,11 +402,7 @@ function syncEventForm() {
   document.getElementById("newEventValueRow").classList.toggle("hidden", kind !== "weight");
   if (kind === "weight") showWeightHint();
   document.getElementById("newEventTreatmentRows").classList.toggle("hidden", kind !== "treatment");
-  if (kind === "treatment") {
-    KuddeProducts.render(document.getElementById("newEventProductChips"), {
-      product: document.getElementById("newEventProduct"), dose: document.getElementById("newEventDose"),
-      withdrawal: document.getElementById("newEventWithdrawal") });
-  }
+  if (kind === "treatment") KuddeProducts.render(document.getElementById("newEventProductChips"), EVENT_TREATMENT_INPUTS());
   const placing = kind === "movement" || kind === "birth";
   document.getElementById("newEventLocationRow").classList.toggle("hidden", !placing);
   if (placing) {
@@ -431,8 +427,7 @@ async function addEvent() {
   if (kind === "death" || kind === "sale") {
     const label = kind === "death" ? "dead" : "sold";
     const animal = animals.find((a) => a.tag === editingTag);
-    const warning = kind === "sale" && animal && Kudde.inWithdrawal(animal.withdrawal_until)
-      ? `${editingTag} is in withdrawal until ${Kudde.fmtDate(animal.withdrawal_until)} and should not be slaughtered before then.` : "";
+    const warning = kind === "sale" ? Kudde.saleWarning(animal) : "";
     const ok = await Kudde.confirm({
       title: `Record ${editingTag} as ${label}?`,
       message: `It will be marked ${STATUS_LABEL[label]} and leave the live herd.`,
@@ -448,14 +443,11 @@ async function addEvent() {
     value,
     location: document.getElementById("newEventLocation").value.trim(),
     note: document.getElementById("newEventNote").value.trim(),
-    product: document.getElementById("newEventProduct").value.trim(),
-    dose: document.getElementById("newEventDose").value.trim(),
-    withdrawal_days: /^\d+$/.test(document.getElementById("newEventWithdrawal").value.trim())
-      ? parseInt(document.getElementById("newEventWithdrawal").value, 10) : null,
   };
-  if (kind === "treatment" && payload.withdrawal_days === null
-      && document.getElementById("newEventWithdrawal").value.trim() !== "") {
-    Kudde.toast("Withdrawal must be a whole number of days"); return;
+  if (kind === "treatment") {
+    const treatment = KuddeProducts.read(EVENT_TREATMENT_INPUTS());
+    if (!treatment) return;
+    Object.assign(payload, treatment);
   }
 
   try {
@@ -467,16 +459,16 @@ async function addEvent() {
     return;
   }
 
-  const newCamp = payload.location && !KuddeCamps.isKnown(payload.location) ? payload.location : null;
+  const campNote = KuddeCamps.newCampNote(payload.location);
   for (const id of ["newEventValue", "newEventLocation", "newEventNote", "newEventProduct", "newEventDose", "newEventWithdrawal"]) {
     document.getElementById(id).value = "";
   }
-  if (kind === "treatment") { KuddeProducts.remember({ product: payload.product, dose: payload.dose, withdrawal_days: payload.withdrawal_days }); syncEventForm(); }
-  Kudde.toast(newCamp ? `Event recorded - new camp ${newCamp} added to Settings` : "Event recorded");
-  if (newCamp) { await KuddeCamps.load(); syncEventForm(); }
-  await refreshEventsList();
-  await loadAnimals();   // a sale/death event may have changed this animal's status
-  await loadDashboard();
+  if (kind === "treatment") { KuddeProducts.remember(payload); syncEventForm(); }
+  Kudde.toast(`Event recorded${campNote}`);
+  if (campNote) { await KuddeCamps.load(); syncEventForm(); }
+  // A sale/death event may have changed this animal's status: the herd
+  // and the dashboard reload with the history, all three at once.
+  await Promise.all([refreshEventsList(), loadAnimals(), loadDashboard()]);
   const refreshed = animals.find((a) => a.tag === editingTag);
   if (refreshed) {
     document.getElementById("fStatus").value = refreshed.status;
@@ -671,6 +663,7 @@ async function loadCamps() {
     Kudde.setOffline(true);
     return;
   }
+  KuddeCamps.set(camps);   // the chips follow, without a second round trip
   renderCamps();
 }
 
@@ -720,7 +713,6 @@ async function campRequest(path, options) {
     return false;
   }
   await loadCamps();
-  await KuddeCamps.load();
   return true;
 }
 
@@ -763,9 +755,6 @@ let moveLocations = [];        // last /api/locations response
 let moveSelectedLocation = null;
 let groupMode = "move";        // "move" or "treat": what step two does with the picked camp
 
-async function openMoveModal() { await openGroupModal("move"); }
-async function openTreatModal() { await openGroupModal("treat"); }
-
 // Move camp and Treat group share step one (pick the camp, tick the
 // animals) and differ only in what is recorded, so one modal serves both.
 async function openGroupModal(mode) {
@@ -793,24 +782,8 @@ async function openGroupModal(mode) {
 }
 
 function renderMoveLocations() {
-  const list = document.getElementById("moveLocationsList");
-  document.getElementById("moveLocationsEmpty").classList.toggle("hidden", moveLocations.length > 0);
-  // The whole farm, as the Field app shows it: empty camps greyed (nothing
-  // to move from), and the animals with no camp yet as the last row so
-  // they can be moved INTO one.
-  list.innerHTML = moveLocations.map((loc, i) => {
-    const n = loc.animals.length;
-    const label = loc.location === null ? "No camp yet" : loc.location;
-    return `
-    <button class="w-full text-left rounded-lg p-3 flex items-center justify-between move-location-btn ${n ? "bg-slate-50 hover:bg-slate-100" : "bg-slate-50 opacity-50"}"
-            data-index="${i}" ${n ? "" : "disabled"}>
-      <span class="font-semibold ${loc.location === null ? "italic" : ""}">${escapeHtml(label)}</span>
-      <span class="text-xs text-slate-500">${n ? `${n} animal${n === 1 ? "" : "s"}` : "empty"}</span>
-    </button>`;
-  }).join("");
-  list.querySelectorAll(".move-location-btn").forEach((btn) => {
-    btn.addEventListener("click", () => openMoveAnimals(parseInt(btn.dataset.index, 10)));
-  });
+  KuddeCamps.renderLocations(document.getElementById("moveLocationsList"),
+                             document.getElementById("moveLocationsEmpty"), moveLocations, openMoveAnimals);
 }
 
 function openMoveAnimals(index) {
@@ -843,9 +816,7 @@ function openTreatAnimals() {
     ? "the animals with no camp" : moveSelectedLocation.location;
   document.getElementById("treatDate").value = Kudde.localDateStr();
   for (const id of ["treatProduct", "treatDose", "treatWithdrawal", "treatNote"]) document.getElementById(id).value = "";
-  KuddeProducts.render(document.getElementById("treatProductChips"), {
-    product: document.getElementById("treatProduct"), dose: document.getElementById("treatDose"),
-    withdrawal: document.getElementById("treatWithdrawal") });
+  KuddeProducts.render(document.getElementById("treatProductChips"), GROUP_TREATMENT_INPUTS());
   document.getElementById("treatAnimalsList").innerHTML = moveSelectedLocation.animals.map((a) => `
     <label class="flex items-center gap-2 py-1">
       <input type="checkbox" class="treat-animal-check w-4 h-4" data-tag="${escapeHtml(a.tag)}" checked>
@@ -860,14 +831,11 @@ async function confirmTreat() {
   if (!tags.length) { Kudde.toast("Select at least one animal"); return; }
   const eventDate = document.getElementById("treatDate").value;
   if (!eventDate) { Kudde.toast("Date is required"); return; }
-  const product = document.getElementById("treatProduct").value.trim();
-  if (!product) { Kudde.toast("Say what the product is"); return; }
-  const rawDays = document.getElementById("treatWithdrawal").value.trim();
-  const withdrawal_days = /^\d+$/.test(rawDays) ? parseInt(rawDays, 10) : null;
-  if (rawDays && withdrawal_days === null) { Kudde.toast("Withdrawal must be a whole number of days"); return; }
+  const treatment = KuddeProducts.read(GROUP_TREATMENT_INPUTS());
+  if (!treatment) return;
+  if (!treatment.product) { Kudde.toast("Say what the product is"); return; }
 
-  const payload = { tags, event_date: eventDate, product, dose: document.getElementById("treatDose").value.trim(),
-                    withdrawal_days, note: document.getElementById("treatNote").value.trim() };
+  const payload = { tags, event_date: eventDate, ...treatment, note: document.getElementById("treatNote").value.trim() };
   try {
     await Kudde.api("/api/events/treatment/bulk", { method: "POST", body: payload });
     Kudde.setOffline(false);
@@ -876,11 +844,10 @@ async function confirmTreat() {
     Kudde.toast(Kudde.errorDetail(e));
     return;
   }
-  KuddeProducts.remember({ product, dose: payload.dose, withdrawal_days });
+  KuddeProducts.remember(treatment);
   closeMoveModal();
-  Kudde.toast(`Treated ${tags.length} animal${tags.length === 1 ? "" : "s"} with ${product}`);
-  await loadAnimals();
-  await loadDashboard();
+  Kudde.toast(`Treated ${tags.length} animal${tags.length === 1 ? "" : "s"} with ${treatment.product}`);
+  await Promise.all([loadAnimals(), loadDashboard()]);
 }
 
 function backToMoveLocations() {
@@ -903,7 +870,7 @@ async function confirmMove() {
   if (!eventDate) { Kudde.toast("Date is required"); return; }
   const location = document.getElementById("moveToLocation").value.trim();
   if (!location) { Kudde.toast("Pick the camp they are moving to"); return; }
-  const newCamp = KuddeCamps.isKnown(location) ? null : location;
+  const campNote = KuddeCamps.newCampNote(location);
 
   const payload = { tags, event_date: eventDate, location, note: document.getElementById("moveNote").value.trim() };
 
@@ -917,11 +884,8 @@ async function confirmMove() {
   }
 
   closeMoveModal();
-  Kudde.toast(`Moved ${tags.length} animal${tags.length === 1 ? "" : "s"} to ${location}`
-    + (newCamp ? " (new camp added to Settings)" : ""));
-  await loadAnimals();
-  await loadDashboard();
-  if (newCamp) await loadCamps();
+  Kudde.toast(`Moved ${tags.length} animal${tags.length === 1 ? "" : "s"} to ${location}${campNote}`);
+  await Promise.all([loadAnimals(), loadDashboard(), campNote ? loadCamps() : null]);
 }
 
 // ---------------------------------------------------------------------
@@ -954,8 +918,8 @@ async function init() {
   document.getElementById("saveFarmBtn").addEventListener("click", saveFarm);
   document.getElementById("fGpsLat").addEventListener("change", syncMarkerFromInputs);
   document.getElementById("fGpsLng").addEventListener("change", syncMarkerFromInputs);
-  document.getElementById("moveCampBtn").addEventListener("click", openMoveModal);
-  document.getElementById("treatGroupBtn").addEventListener("click", openTreatModal);
+  document.getElementById("moveCampBtn").addEventListener("click", () => openGroupModal("move"));
+  document.getElementById("treatGroupBtn").addEventListener("click", () => openGroupModal("treat"));
   document.getElementById("backTreatBtn").addEventListener("click", backToMoveLocations);
   document.getElementById("confirmTreatBtn").addEventListener("click", confirmTreat);
   document.getElementById("cancelMoveBtn").addEventListener("click", closeMoveModal);
@@ -978,10 +942,7 @@ async function init() {
   KWPTR.attach(async () => { await loadAnimals(); await loadDashboard(); });
   window.addEventListener("online", async () => { await loadAnimals(); await loadDashboard(); });
 
-  await loadAnimals();
-  await loadDashboard();
-  await loadFarm();
-  await loadCamps();
+  await Promise.all([loadAnimals(), loadDashboard(), loadFarm(), loadCamps()]);
   // Last, and not awaited by anything above it: the herd is what this screen
   // is for, and a slow or missing version endpoint must not hold it up.
   loadServerVersion().catch(() => {});

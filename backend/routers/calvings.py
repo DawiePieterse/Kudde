@@ -17,35 +17,23 @@ from datetime import date, datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import field_validator
 from sqlmodel import Session, SQLModel, select
 
 from campnames import ensure_camp
 from db import get_session
 from farmweather import stamp_weather, weather_for
+from herd import animal_by_tag
 from models import Animal, AnimalSex, Event, EventKind
-from routers.animals import AnimalCreate
+from routers.animals import AnimalCreate, new_animal
 from tags import normalise_tag
 
 router = APIRouter(prefix="/api/calvings", tags=["calvings"])
 
 
-class CalfCreate(SQLModel):
-    tag: str
-    sex: AnimalSex
-    name: str = ""
-    breed: str = ""
-    sire_tag: Optional[str] = None
-
-    # Checked here, at request validation, so a blank calf tag is a 422
-    # like any other bad field and not an exception inside the handler.
-    @field_validator("tag")
-    @classmethod
-    def _tag_is_a_tag(cls, value: str) -> str:
-        tag = normalise_tag(value)
-        if tag is None:
-            raise ValueError("the calf needs a tag number")
-        return tag
+class CalfCreate(AnimalCreate):
+    """The calf as the form sends it: a new animal, minus what the calving
+    itself supplies. Its dam, birth date and camp are set from the calving
+    below whatever was sent, so they cannot disagree with the cow."""
 
 
 class CalvingCreate(SQLModel):
@@ -74,40 +62,35 @@ def create_calving(payload: CalvingCreate, session: Session = Depends(get_sessio
             calf = session.exec(select(Animal).where(Animal.tag == normalise_tag(payload.calf.tag))).first()
             return {"dam_event": already, "calf": calf, "replayed": True}
 
-    dam = session.exec(select(Animal).where(Animal.tag == normalise_tag(payload.dam_tag))).first()
-    if dam is None:
-        raise HTTPException(404, f"No animal with tag {payload.dam_tag}")
+    dam = animal_by_tag(session, payload.dam_tag)
     if dam.sex is not AnimalSex.female:
         raise HTTPException(422, f"{dam.tag} is a male and cannot calve")
 
-    # Validated through AnimalCreate so the calf's tag follows every rule a
-    # new animal's does (trimmed, not blank), and refused before anything is
-    # written so the cow is not left with a birth event for a calf that
-    # does not exist.
-    calf_fields = AnimalCreate(tag=payload.calf.tag, sex=payload.calf.sex, name=payload.calf.name,
-                               breed=payload.calf.breed, sire_tag=payload.calf.sire_tag,
-                               dam_tag=dam.tag, birth_date=payload.event_date)
-    if session.exec(select(Animal).where(Animal.tag == calf_fields.tag)).first() is not None:
-        raise HTTPException(409, f"Tag {calf_fields.tag} is already in use")
-
+    # The calf first, through the same path as any new animal: a taken tag
+    # is refused before anything is added, so the cow is not left with a
+    # birth event for a calf that does not exist. Its birth event is placed
+    # in the camp the calving names.
     camp = (payload.camp or "").strip()
-    location = ensure_camp(session, camp).name if camp else ""
-    weather = weather_for(session, payload.event_date)
+    calf_fields = payload.calf.model_copy(update={
+        "dam_tag": dam.tag, "birth_date": payload.event_date, "camp": camp or None})
+    calf = new_animal(session, calf_fields, placed_kind=EventKind.birth, on=payload.event_date,
+                      note=f"Born to {dam.tag}",
+                      client_uuid=_calf_uuid(payload.client_uuid) if payload.client_uuid else None)
+    if not camp:
+        # No camp named: the calf still gets its birth event, just unplaced.
+        session.flush()
+        unplaced = Event(animal_id=calf.id, kind=EventKind.birth, event_date=payload.event_date,
+                         note=f"Born to {dam.tag}",
+                         client_uuid=_calf_uuid(payload.client_uuid) if payload.client_uuid else None)
+        stamp_weather(unplaced, weather_for(session, payload.event_date))
+        session.add(unplaced)
 
+    location = ensure_camp(session, camp).name if camp else ""
     note = f"Calf {calf_fields.tag}" + (f" - {payload.note.strip()}" if payload.note.strip() else "")
     dam_event = Event(animal_id=dam.id, kind=EventKind.birth, event_date=payload.event_date,
                       location=location, note=note, client_uuid=payload.client_uuid)
-    stamp_weather(dam_event, weather)
+    stamp_weather(dam_event, weather_for(session, payload.event_date))
     session.add(dam_event)
-
-    calf = Animal(**calf_fields.model_dump(exclude={"camp"}))
-    session.add(calf)
-    session.flush()
-    calf_event = Event(animal_id=calf.id, kind=EventKind.birth, event_date=payload.event_date,
-                       location=location, note=f"Born to {dam.tag}",
-                       client_uuid=_calf_uuid(payload.client_uuid) if payload.client_uuid else None)
-    stamp_weather(calf_event, weather)
-    session.add(calf_event)
 
     dam.updated_at = datetime.utcnow()
     session.add(dam)
