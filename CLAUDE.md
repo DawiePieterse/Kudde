@@ -9,7 +9,7 @@ Kudde ("herd" in Afrikaans) is a small cattle-recording app: animals, plus the h
 - `MANUAL.md` is the user and admin manual. Read it for behaviour and anything user-facing.
 - `UPDATING.md` is the full reference for how a release reaches the farm PC.
 
-It shares no database or code with Boord. Boord's `watchdog.ps1` and `heartbeat.ps1` watch it, and Boord Monitor shows it.
+It shares no database or code with Boord. Boord Monitor's watchdog and heartbeat watch it, and Boord Monitor shows it.
 
 ## The Boord suite
 
@@ -22,19 +22,19 @@ This app is one of seven that run together on the farm PC (`bekfontein-server`),
 | Boord Notes | `boord-notes` | Private farm notebook for Andre and his son, offline-first, optional AI. | 8020 | `https://bekfontein-server.taile32cb0.ts.net:9443/` | `~/Documents/Projects/BoordNotes` | `C:\bekfontein-farm-notebook` |
 | **Kudde** (this app) | `Kudde` | Cattle records: animals and their events. | 8030 | `https://bekfontein-server.taile32cb0.ts.net:8030/` | `~/Documents/Projects/Kudde` | `C:\Kudde` |
 | Boord Labour | `Boord-labour` | Packhouse time clock: badge scans at the door, hourly pay with overtime. | 8040 | `https://bekfontein-server.taile32cb0.ts.net:8040/` | `~/Documents/Projects/Boord-labour` | `C:\Boord-labour` |
-| Boord Monitor | `Boord-monitor` | Watches the PC and the other six apps; Web Push alerts and a Restart button. | 8050 | `https://bekfontein-server.taile32cb0.ts.net:8050/` | `~/Documents/Projects/Boord-monitor` | `C:\boord-monitor` |
+| Boord Monitor | `Boord-monitor` | Watches the PC and the other apps: status page, SLOs, incidents, Web Push alerts, a Restart button; runs the watchdog and heartbeat. | 8050 | `https://bekfontein-server.taile32cb0.ts.net:8050/` | `~/Documents/Projects/Boord-monitor` | `C:\boord-monitor` |
 | Boord Packhouse | `boord-packhouse` | After receiving to the truck: sulfur, acid, lines, pre-pack, cold store and PPECB, dispatch. | 8060 | `https://bekfontein-server.taile32cb0.ts.net:8060/` | `~/Documents/Projects/Boord-packhouse` | `C:\Boord-packhouse` |
 
 **How they depend on each other:**
 - **Boord is the hub.** Its `data/boord.db` is opened read-only by Owner (harvest, lots, blocks, suppliers), Labour (the worker register, and Boord's `data/photos` for faces), Monitor (tablet station, last sync and outbox) and Packhouse (received lots, blocks, suppliers, workers).
   - Boord is that database's only writer and migrates it at startup.
-  - Owner and Labour refuse to boot if a column they read disappears. A Boord migration that drops or renames a column needs those apps updated in step.
-- **Labour's badges are Boord's.** The badge QR holds exactly `worker.id` (`Boord/frontend/admin/print-badge.html`), and Labour vendors Boord's `frontend/shared/`.
+  - Owner, Labour and Packhouse refuse to boot if a column they read disappears. A Boord migration that drops or renames a column needs those apps updated in step.
+- **Labour's badges are Boord's.** The badge QR holds exactly `worker.id` (`Boord/frontend/admin/print-badge.html`), and Labour and Packhouse vendor Boord's `frontend/shared/`.
 - **Owner asks Notes.** The "Ask the farm notes" bridge calls Notes' `/api/ai/ask` at `OWNER_NOTES_URL` (`http://127.0.0.1:8020`) and can share Notes' `data/anthropic_key.txt`.
-- **Boord keeps the others running.** Boord's `watchdog.ps1` (restarts an app that stops answering) and `heartbeat.ps1` cover all seven.
-  - Their app table (name, port, task, health path) must match Monitor's `backend/apps.py` and the port table above. Change them together.
-  - Monitor reads Boord's `data/watchdog.log`, and its Restart button runs Boord's `watchdog.ps1 -Restart "<Name>"`.
-- **Monitor watches everything.** It shows each app's up/down state and `/api/version`, Tailscale and the PC, and pushes an alert after three failed checks in a row.
+- **Monitor keeps the others running.** Since Monitor 2.0 its `watchdog.ps1` (restarts an app that stops answering) and `heartbeat.ps1` (pings healthchecks.io) cover all seven, as the scheduled tasks "Boord Watchdog" and "Boord Heartbeat". Until then they lived in Boord's repo; Boord's copies are now forwarders to Monitor's.
+  - **The app table is Monitor's `apps.json`, the one copy.** Monitor's `backend/apps.py`, `watchdog.ps1` and `heartbeat.ps1` all read it. Adding or moving an app is one line there plus the port table above; the `tailscale serve` ports are also in Boord's MANUAL.md.
+  - The watchdog stands down while any app's updater (its `updater` in `apps.json`) or an installer runs, and its `-Restart "<Name>"` is what Monitor's Restart button runs. It exits 2 when it stands down.
+- **Monitor watches everything.** It shows each app's up/down state and `/api/version`, Tailscale and the PC, keeps uptime history, SLOs and incidents, and pushes an alert after three failed checks in a row.
   - Every app's `/api/version` keeps the same field names (`tag`, `state`, `frontend_version`), because Monitor and the heartbeat read them all.
   - An off-site copy of the monitor on the owner's Mac alerts when the whole farm PC is unreachable.
 - **Kudde and Notes stand alone.** No other app reads their data. They are only watched and restarted.
@@ -102,7 +102,7 @@ CI (`.github/workflows/tests.yml`) runs pytest on Python 3.9, the floor `install
   - Ending the task leaves uvicorn holding port 8030, so the new release can't start and the old one keeps serving.
   - `stop_server.ps1` counts only loopback and all-interface listeners, because `tailscale serve --https=8030` makes tailscaled listen on the same port. Kudde found this first.
 - **The launcher `install.ps1` writes** restarts the server 15 seconds after it exits and logs to `data\server.log`. The installer also reserves port 8030, so Hyper-V, WSL or Docker can't take it at boot.
-- **The app table in Boord's `watchdog.ps1` and `heartbeat.ps1`**, and Boord Monitor's `apps.py`, list Kudde's port, task name ("Kudde Server") and health path (`/healthz`). Change them together.
+- **Boord Monitor's `apps.json`** (the one app table, read by its `apps.py`, `watchdog.ps1` and `heartbeat.ps1`) lists Kudde's port, task name ("Kudde Server"), health path (`/healthz`) and updater (`update_server.bat`). Change it with them.
 
 ## Frontend
 
