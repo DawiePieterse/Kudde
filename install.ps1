@@ -2,7 +2,7 @@
 #
 # Installs Python if needed, installs Git and GnuPG so the server can pull
 # signed updates, creates the virtual environment, installs dependencies,
-# writes the launcher script, opens the Windows Firewall port, and registers
+# writes the launcher script, closes the firewall port older versions opened, and registers
 # the server to auto-start at boot (as SYSTEM, so no one needs to log in for
 # it to start). Safe to re-run - each step checks what's already done.
 # Adapted from Boord's install.ps1.
@@ -306,6 +306,11 @@ try {
     # --- Step 6: Write the launcher script ---
     Write-Step "Creating the server launcher..."
     $launcherPath = Join-Path $RepoRoot "start_server.bat"
+    # --host 127.0.0.1, like every Boord app: the only way in is
+    # `tailscale serve`, which proxies to http://localhost:8030 from this PC.
+    # security.py refuses non-Tailscale requests too, but binding loopback
+    # means the farm Wi-Fi never reaches the process at all.
+    #
     # The launcher starts the server again 15 seconds after it exits, for any
     # reason. The scheduled task only fires at boot, so without this a server
     # that died stayed down until Boord's watchdog noticed, five or more
@@ -336,7 +341,7 @@ if not exist "$dataDir" mkdir "$dataDir"
 :loop
 if exist "%LOG%" for %%F in ("%LOG%") do if %%~zF GTR 1048576 move /y "%LOG%" "%LOG%.1" >nul
 >>"%LOG%" echo %date% %time%  Starting Kudde on port $Port
-"$venvPython" -m uvicorn main:app --host 0.0.0.0 --port $Port >>"%LOG%" 2>&1
+"$venvPython" -m uvicorn main:app --host 127.0.0.1 --port $Port >>"%LOG%" 2>&1
 >>"%LOG%" echo %date% %time%  Server exited with code %errorlevel%; starting it again in 15 seconds
 ping -n 16 127.0.0.1 >nul
 goto loop
@@ -345,10 +350,12 @@ goto loop
     Write-Ok "Created $launcherPath"
 
     # --- Step 7: Firewall rule ---
-    Write-Step "Allowing the app through Windows Firewall..."
+    # Nothing to open: the server listens on loopback only. This DELETES the
+    # rule older installers added, so re-running the installer on a farm that
+    # already has port $Port open to the LAN closes it.
+    Write-Step "Closing the firewall port older versions opened..."
     netsh advfirewall firewall delete rule name="$FirewallRuleName" | Out-Null
-    netsh advfirewall firewall add rule name="$FirewallRuleName" dir=in action=allow protocol=TCP localport=$Port | Out-Null
-    Write-Ok "Firewall rule set for port $Port"
+    Write-Ok "Port $Port is not exposed to the network (reachable via Tailscale only)"
 
     # --- Step 8: Scheduled task (auto-start at boot, no login needed) ---
     Write-Step "Stopping the old server, if one is running..."
