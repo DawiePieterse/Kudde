@@ -318,7 +318,9 @@ something needs redoing.
    - Create a virtual environment in `backend\.venv` and install the
      app's dependencies into it.
    - Write a `start_server.bat` launcher.
-   - Open port **8030** through Windows Firewall. On a farm PC shared
+   - Close any Windows Firewall rule an older installer opened for port
+     **8030**. The server listens on this PC only (`127.0.0.1`), so
+     nothing needs opening. On a farm PC shared
      with the other Boord apps, each one has its own port, and its own
      `tailscale serve` port so the addresses don't collide:
 
@@ -396,7 +398,7 @@ automated script yet. From the `backend/` folder:
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8030
+uvicorn main:app --host 127.0.0.1 --port 8030
 ```
 
 **Mac/Linux:**
@@ -404,20 +406,16 @@ uvicorn main:app --host 0.0.0.0 --port 8030
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8030
+uvicorn main:app --host 127.0.0.1 --port 8030
 ```
 
-- `--host 0.0.0.0` lets `tailscale serve` reach the process. It does
-  **not** open the herd to the farm Wi-Fi: a request that didn't arrive
-  over Tailscale is refused by the app itself, whatever address it came
-  to.
+- `--host 127.0.0.1` keeps the process on this PC only, like every Boord
+  app. `tailscale serve` runs on the same PC, so it still reaches it, and
+  the farm Wi-Fi never can. (The app also refuses any request that didn't
+  arrive over Tailscale, as a second layer.)
 - `8030` is the port every other step in this manual assumes, and the one
   `tailscale serve` is pointed at above. Any free port works, but change
   it in both places and stick with one number.
-- On Windows, allow the port through Windows Firewall if it isn't
-  prompted automatically (Windows Security → Firewall & network
-  protection → Advanced settings → Inbound Rules → New Rule → Port → TCP
-  8030 → Allow).
 - To keep it running after closing the terminal and restart automatically
   after a reboot, use your platform's standard approach for a
   long-running service (a Scheduled Task on Windows - see below - a
