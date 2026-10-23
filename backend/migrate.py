@@ -83,11 +83,20 @@ def _snapshot_or_refuse(target_engine, label: str) -> None:
     nothing has changed yet at this point, so checking the previous release
     back out is a complete fix.
     """
-    from backup import snapshot_before_migration  # here, to keep db <- backup <- migrate acyclic
+    from backup import recent_snapshot, snapshot_before_migration  # here, to keep db <- backup <- migrate acyclic
 
     db_path = target_engine.url.database
     if not db_path or not os.path.exists(db_path):
         return  # an in-memory or not-yet-created database has nothing to lose
+
+    # A retry of a migration that failed minutes ago keeps the copy taken
+    # before the first attempt rather than crowding it out - see
+    # backup.recent_snapshot().
+    earlier = recent_snapshot(label)
+    if earlier:
+        print(f"[migration] retrying; {os.path.basename(earlier)} is still the copy "
+              f"from before the first attempt", flush=True)
+        return
 
     try:
         path = snapshot_before_migration(label, db_path)

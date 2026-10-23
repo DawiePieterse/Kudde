@@ -1152,9 +1152,17 @@ task again, or use `stop_server.ps1` first to confirm the port is
 genuinely free.
 
 **The "Kudde Server" scheduled task shows as ran/ready, but nothing
-answers.** Check the task's History tab in Task Scheduler for an error,
-or run `start_server.bat` by hand in a visible Command Prompt window -
-errors that a headless Scheduled Task swallows are printed there.
+answers.** Look in `data\server.log`. Everything the server prints goes
+there, each start and exit stamped with the date and time, and a crash
+prints its error just before the exit line. The launcher starts the server
+again 15 seconds after it stops, so a server that keeps dying shows up as a
+repeating pattern there. A launcher written by an installer older than 0.9
+(re-run `install.bat` to get the new one) does neither.
+
+If the log says the port is in use or access to the socket is forbidden,
+Windows (Hyper-V, WSL or Docker) may have reserved port 8030 this boot.
+`install.bat` reserves the port so that cannot happen, and says what to do
+if Windows got there first.
 
 **How do I get my data off this PC, or back it up?** Everything is in the
 `data\` folder - the database *and* the photos, which are separate files.

@@ -30,7 +30,7 @@ the expensive way:
 import os
 import shutil
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from db import DATA_DIR, DB_PATH, PHOTOS_DIR
 
@@ -56,6 +56,46 @@ def _pre_migration_filenames() -> list:
         return []
     return sorted(f for f in names
                   if f.startswith(PRE_MIGRATION_PREFIX) and f.endswith(".db"))
+
+
+_STAMP_FORMAT = "%Y%m%d_%H%M%S"
+_STAMP_LEN = len("20260101_120000")
+# How recent a snapshot of the same migration has to be for a retry to reuse
+# it rather than take another. See recent_snapshot().
+REUSE_WITHIN = timedelta(hours=1)
+
+
+def _safe_label(label: str) -> str:
+    return "".join(c if c.isalnum() or c in "-_" else "_" for c in label)[:40]
+
+
+def recent_snapshot(label: str):
+    """The earliest snapshot of this same migration taken within REUSE_WITHIN,
+    or None.
+
+    The launcher starts the server again 15 seconds after it exits, and the
+    server migrates at startup. A migration that fails would otherwise take a
+    fresh snapshot on every attempt, and with only PRE_MIGRATION_KEEP kept the
+    one copy that matters - the first, taken before anything was touched -
+    would be pruned within about a minute, replaced by copies of whatever the
+    failed attempts left behind. Reusing it keeps the clean copy.
+
+    Only a recent one, because an older snapshot with the same label is from
+    an earlier attempt at this upgrade (rolled back since, with the farm's
+    records carrying on in between), and reusing it would leave the farm
+    with a rollback point that is missing everything entered since."""
+    suffix = "_" + _safe_label(label) + ".db"
+    cutoff = datetime.now() - REUSE_WITHIN
+    for name in _pre_migration_filenames():
+        if name[len(PRE_MIGRATION_PREFIX) + _STAMP_LEN:] != suffix:
+            continue
+        try:
+            taken = datetime.strptime(name[len(PRE_MIGRATION_PREFIX):][:_STAMP_LEN], _STAMP_FORMAT)
+        except ValueError:
+            continue
+        if taken >= cutoff:
+            return os.path.join(BACKUPS_DIR, name)
+    return None
 
 
 def _snapshot_db(source_path: str, destination: str) -> None:
@@ -134,8 +174,8 @@ def snapshot_before_migration(label: str, db_path: str = None,
     """
     source_path = db_path or DB_PATH
     source_photos = photos_dir or PHOTOS_DIR
-    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in label)[:40]
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe = _safe_label(label)
+    timestamp = datetime.now().strftime(_STAMP_FORMAT)
     os.makedirs(BACKUPS_DIR, exist_ok=True)
     path = os.path.join(BACKUPS_DIR, f"{PRE_MIGRATION_PREFIX}{timestamp}_{safe}.db")
 
