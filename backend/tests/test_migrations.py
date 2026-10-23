@@ -377,3 +377,27 @@ def test_pruning_takes_a_snapshots_photos_with_it(tmp_path, snapshot_dir, monkey
     kept = backup._pre_migration_filenames()
     photo_dirs = sorted(d for d in os.listdir(backups) if d.endswith(backup.PRE_MIGRATION_PHOTOS_SUFFIX))
     assert photo_dirs == [backup._photos_dir_for(name) for name in kept]
+
+
+def test_a_retried_migration_keeps_the_first_snapshot(tmp_path, snapshot_dir):
+    """The launcher starts the server again 15 seconds after it exits, and the
+    server migrates at startup. A migration that keeps failing must not take
+    a copy per attempt: PRE_MIGRATION_KEEP of those would prune the one taken
+    before anything was touched within about a minute."""
+    path = tmp_path / "farm.db"
+    sqlite3.connect(path).close()
+    engine = create_engine(f"sqlite:///{path}")
+    for _ in range(backup.PRE_MIGRATION_KEEP + 2):
+        migrate._snapshot_or_refuse(engine, "a_to_b")
+    assert len(backup._pre_migration_filenames()) == 1
+
+
+def test_an_old_snapshot_of_the_same_migration_is_not_reused(tmp_path, snapshot_dir):
+    """A copy from an earlier attempt at the same upgrade, since rolled back,
+    is missing everything entered after it - this attempt needs its own."""
+    snapshot_dir.mkdir()
+    (snapshot_dir / f"{backup.PRE_MIGRATION_PREFIX}20200101_120000_a_to_b.db").write_bytes(b"")
+    path = tmp_path / "farm.db"
+    sqlite3.connect(path).close()
+    migrate._snapshot_or_refuse(create_engine(f"sqlite:///{path}"), "a_to_b")
+    assert len(backup._pre_migration_filenames()) == 2

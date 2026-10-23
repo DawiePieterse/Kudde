@@ -306,10 +306,40 @@ try {
     # --- Step 6: Write the launcher script ---
     Write-Step "Creating the server launcher..."
     $launcherPath = Join-Path $RepoRoot "start_server.bat"
+    # The launcher starts the server again 15 seconds after it exits, for any
+    # reason. The scheduled task only fires at boot, so without this a server
+    # that died stayed down until Boord's watchdog noticed, five or more
+    # minutes later - or until the next reboot on a PC without the watchdog.
+    # Ending the task (schtasks /end, stop_server.ps1) ends the loop with it.
+    # A migration that fails at startup is retried with it too, which is why
+    # migrate.py reuses the copy taken before the first attempt rather than
+    # taking one per attempt.
+    #
+    # Everything the server prints goes to data\server.log, because a task
+    # running as SYSTEM has no window and the reason it died was otherwise
+    # lost every time. One old generation is kept, capped at 1 MB.
+    #
+    # Two small things that look odd and are load-bearing:
+    # - The wait is "ping", not "timeout": timeout refuses to run without a
+    #   console ("Input redirection is not supported") and returns at once,
+    #   which turns a broken server into a busy loop.
+    # - Each echo puts the redirect first. %time% ends in a digit, and a digit
+    #   right before the arrow is read as a handle number and eaten (see the
+    #   note in update_server.bat).
+    $dataDir = Join-Path $RepoRoot "data"
     $launcherContent = @"
 @echo off
 cd /d "$BackendDir"
-"$venvPython" -m uvicorn main:app --host 0.0.0.0 --port $Port
+set "PYTHONUNBUFFERED=1"
+set "LOG=$dataDir\server.log"
+if not exist "$dataDir" mkdir "$dataDir"
+:loop
+if exist "%LOG%" for %%F in ("%LOG%") do if %%~zF GTR 1048576 move /y "%LOG%" "%LOG%.1" >nul
+>>"%LOG%" echo %date% %time%  Starting Kudde on port $Port
+"$venvPython" -m uvicorn main:app --host 0.0.0.0 --port $Port >>"%LOG%" 2>&1
+>>"%LOG%" echo %date% %time%  Server exited with code %errorlevel%; starting it again in 15 seconds
+ping -n 16 127.0.0.1 >nul
+goto loop
 "@
     Set-Content -Path $launcherPath -Value $launcherContent -Encoding ASCII
     Write-Ok "Created $launcherPath"
@@ -321,7 +351,7 @@ cd /d "$BackendDir"
     Write-Ok "Firewall rule set for port $Port"
 
     # --- Step 8: Scheduled task (auto-start at boot, no login needed) ---
-    Write-Step "Registering the server to start automatically with Windows..."
+    Write-Step "Stopping the old server, if one is running..."
     # Route schtasks through cmd so its stderr never reaches PowerShell.
     # $ErrorActionPreference = "Stop" (top of this file) turns a native
     # command's stderr into a TERMINATING error when it is redirected with
@@ -331,10 +361,54 @@ cd /d "$BackendDir"
     # hit exactly this on new machines only.
     cmd /c "schtasks /query /tn ""$TaskName"" >nul 2>&1"
     if ($LASTEXITCODE -eq 0) {
-        cmd /c "schtasks /end /tn ""$TaskName"" >nul 2>&1"
-        Start-Sleep -Seconds 1
+        # stop_server.ps1, not a bare "schtasks /end": the uvicorn process
+        # outlives the launcher, and a re-install would then start the new
+        # launcher next to an old server still holding the port.
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot "stop_server.ps1") -Port $Port -TaskName $TaskName
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "The old server could not be stopped (see above). Restart the PC after this installer finishes."
+        }
         schtasks /delete /tn "$TaskName" /f | Out-Null
     }
+
+    # Keep Windows from taking port 8030. Hyper-V, WSL and Docker reserve
+    # blocks of ports at every boot, and the block moves from boot to boot.
+    # When it lands on 8030, uvicorn cannot bind ("An attempt was made to
+    # access a socket in a way forbidden by its access permissions") and Kudde
+    # is down until a reboot that happens to reserve elsewhere - which looks
+    # exactly like a server that shuts off for no reason. Reserving the port
+    # for administrators keeps Windows from handing it out; programs can still
+    # listen on it. Done here because the server is stopped: netsh refuses a
+    # port that is in use. Copied from Boord Labour's install.ps1.
+    Write-Step "Reserving port $Port so Windows cannot hand it to anything else..."
+    $reservedBy = $null
+    foreach ($line in (cmd /c "netsh int ipv4 show excludedportrange protocol=tcp 2>&1")) {
+        if ($line -match '^\s*(\d+)\s+(\d+)\s*(\*)?\s*$') {
+            if ([int]$matches[1] -le $Port -and $Port -le [int]$matches[2]) {
+                $reservedBy = if ($matches[3]) { "admin" } else { "windows" }
+            }
+        }
+    }
+    if ($reservedBy -eq "admin") {
+        Write-Ok "Port $Port is already reserved"
+    } elseif ($reservedBy -eq "windows") {
+        Write-Warn "Windows has reserved a range of ports that includes $Port this boot"
+        Write-Warn "(Hyper-V, WSL or Docker), so the server cannot start. To free it for good,"
+        Write-Warn "run these in an administrator window, then run install.bat again:"
+        Write-Warn "    net stop winnat"
+        Write-Warn "    netsh int ipv4 add excludedportrange protocol=tcp startport=$Port numberofports=1"
+        Write-Warn "    net start winnat"
+    } else {
+        $out = cmd /c "netsh int ipv4 add excludedportrange protocol=tcp startport=$Port numberofports=1 2>&1"
+        if ($LASTEXITCODE -eq 0) {
+            Write-Ok "Port $Port reserved"
+        } else {
+            Write-Warn "Could not reserve port $Port ($(($out | Out-String).Trim()))."
+            Write-Warn "The server still works; Windows may just take the port on some boots."
+        }
+    }
+
+    Write-Step "Registering the server to start automatically with Windows..."
     schtasks /create /tn "$TaskName" /tr "`"$launcherPath`"" /sc onstart /ru SYSTEM /rl highest /f | Out-Null
     # schtasks /create gives every task a 72 hour run limit, after which Windows
     # kills it. The server is meant to run for months and the task only fires at
@@ -383,9 +457,8 @@ cd /d "$BackendDir"
         Write-Ok "Server is up and answering on port $Port"
     } else {
         Write-Warn "The server did not answer on port $Port within 20 seconds."
-        Write-Warn "It may still be starting. If it never comes up, run start_server.bat"
-        Write-Warn "directly in a window - errors are printed there rather than swallowed"
-        Write-Warn "by the Scheduled Task."
+        Write-Warn "It may still be starting. Why it did not is in data\server.log;"
+        Write-Warn "the launcher keeps retrying every 15 seconds."
     }
 
     # --- Step 11: Say how to reach it ---
