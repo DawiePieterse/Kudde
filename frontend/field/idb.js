@@ -69,6 +69,15 @@ const IDB = (() => {
     });
   }
 
+  // Oldest capture first. See getPending() for why this matters.
+  function inCaptureOrder(entries) {
+    return [...entries].sort((a, b) => {
+      const ta = String(a.timestamp || "");
+      const tb = String(b.timestamp || "");
+      return ta < tb ? -1 : ta > tb ? 1 : 0;
+    });
+  }
+
   return {
     async enqueue(entry) {
       const store = await tx(OUTBOX, "readwrite");
@@ -78,10 +87,19 @@ const IDB = (() => {
     // Waiting to be sent: not yet landed and not refused. Failed entries
     // are left out so the sync loop doesn't post the same rejected request
     // every 20 seconds forever.
+    //
+    // In the order they were captured, NOT the order getAll() returns them.
+    // The store is keyed by uuid, and a uuid is random, so getAll() hands
+    // back a day's captures shuffled - and the sync loop then posted the
+    // weighing of a new animal before the animal itself, got "No animal
+    // with tag ..." back, and marked the weighing failed for good while the
+    // animal landed fine a moment later. Every entry carries the timestamp
+    // enqueue() stamped it with, an ISO string, so string order is time
+    // order; one written by a build before the stamp sorts first.
     async getPending() {
       const store = await tx(OUTBOX, "readonly");
       const all = await request(store.getAll());
-      return all.filter((e) => !e.synced && e.status !== "failed");
+      return inCaptureOrder(all.filter((e) => !e.synced && e.status !== "failed"));
     },
     // Refused by the server. Kept on the device - not deleted - because
     // each one is a record somebody captured in the field (a weighing, a
@@ -90,7 +108,7 @@ const IDB = (() => {
     async getFailed() {
       const store = await tx(OUTBOX, "readonly");
       const all = await request(store.getAll());
-      return all.filter((e) => !e.synced && e.status === "failed");
+      return inCaptureOrder(all.filter((e) => !e.synced && e.status === "failed"));
     },
     async markFailed(uuid, error) {
       const store = await tx(OUTBOX, "readwrite");

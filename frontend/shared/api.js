@@ -7,7 +7,7 @@ const API_BASE = "";
 const Kudde = {
   // Bump on every deploy that touches frontend code, shown in each screen's
   // header - useful given the service workers cache the shell first.
-  VERSION: "0.10",
+  VERSION: "0.11",
 
   // A device whose WiFi is up but that cannot actually reach the farm server
   // gets no error from fetch() - the request just hangs until the OS gives
@@ -287,6 +287,42 @@ const Kudde = {
   localDateStr(d = new Date()) {
     const pad = (n) => String(n).padStart(2, "0");
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  },
+
+  // True when a typed YYYY-MM-DD is more than a day ahead - the server's
+  // rule (routers/events.py FUTURE_GRACE), checked here as well because an
+  // offline capture never reaches the server to be told: a weighing dated
+  // next year would sit in the outbox and come back refused days later,
+  // when the number is long forgotten. A date picker scrolled to the wrong
+  // year is the usual way one arrives. Compared as strings, both local
+  // calendar dates, so no time zone is involved.
+  dateIsFuture(dateStr) {
+    if (!dateStr) return false;
+    const limit = new Date();
+    limit.setDate(limit.getDate() + 1);
+    return String(dateStr) > Kudde.localDateStr(limit);
+  },
+
+  // Wraps a save handler so a second tap while the first is still in flight
+  // does nothing, and disables `button` for the duration when one is given.
+  // A thumb in a glove double-taps Save often enough, and before this each
+  // tap was its own request with its own capture id - the server kept both,
+  // because two captures a second apart are exactly what two genuine
+  // weighings look like. The wrapper swallows nothing: an error still
+  // reaches the caller, and the guard is released either way.
+  oneAtATime(fn, button) {
+    let busy = false;
+    return async (...args) => {
+      if (busy) return undefined;
+      busy = true;
+      if (button) button.disabled = true;
+      try {
+        return await fn(...args);
+      } finally {
+        busy = false;
+        if (button) button.disabled = false;
+      }
+    };
   },
 
   // Slim amber banner pinned under the header telling the user the screen is

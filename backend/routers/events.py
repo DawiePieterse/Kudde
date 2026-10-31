@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -30,6 +30,24 @@ _STATUS_ON_EVENT = {
 # whole event history of the herd.
 _MAX_EVENT_LIMIT = 500
 
+# How far ahead of the server's day an event or birth date may be. Kudde
+# records what happened, not what is planned, so a date in the future is
+# a date picker scrolled to the wrong month or year - and once saved it
+# poisons every derivation: a weighing dated next year keeps the animal off
+# the needs-weighing list for good, a treatment dated next year puts it in
+# withdrawal for months. One day of grace, not zero: the phone's clock and
+# this PC's are not the same clock, and a record made just after midnight
+# on one must not be refused by the other.
+FUTURE_GRACE = timedelta(days=1)
+
+
+def not_in_the_future(value: Optional[date], what: str = "date") -> Optional[date]:
+    """A pydantic validator body shared by every schema that carries a date
+    the farmer typed. Returns the date, or raises the message the apps show."""
+    if value is not None and value > date.today() + FUTURE_GRACE:
+        raise ValueError(f"the {what} is in the future")
+    return value
+
 
 class TreatmentFields(SQLModel):
     """What a treatment records besides the date and note (see
@@ -60,6 +78,22 @@ class EventCreate(TreatmentFields):
     # The id the capturing device gave this event. Optional: the admin app
     # has no outbox and sends none. See create_event().
     client_uuid: Optional[str] = None
+
+    @field_validator("event_date")
+    @classmethod
+    def _dated_in_the_past(cls, value: date) -> date:
+        return not_in_the_future(value)
+
+    @model_validator(mode="after")
+    def _a_move_names_a_camp(self) -> "EventCreate":
+        """A movement with no camp moves the animal nowhere: the derived
+        camp (herd.current_locations) skips an empty location, so the save
+        said "Event recorded" and changed nothing anyone could see. The bulk
+        move already refuses this; the single one has to as well. A birth
+        may still be unplaced - the calving screen allows that on purpose."""
+        if self.kind is EventKind.movement and not (self.location or "").strip():
+            raise ValueError("a camp move needs the camp it is moving to")
+        return self
 
     @model_validator(mode="after")
     def _treatment_fields_belong_to_treatments(self) -> "EventCreate":
@@ -96,6 +130,11 @@ class BulkMovementCreate(SQLModel):
     # reason it is on EventCreate: the admin app has no outbox and sends
     # none. See create_bulk_movement() for what it is derived into.
     client_uuid: Optional[str] = None
+
+    @field_validator("event_date")
+    @classmethod
+    def _dated_in_the_past(cls, value: date) -> date:
+        return not_in_the_future(value)
 
 
 def _camp_location(session: Session, kind: EventKind, location: str) -> str:
@@ -245,6 +284,11 @@ class BulkTreatmentCreate(TreatmentFields):
     event_date: date
     note: str = ""
     client_uuid: Optional[str] = None
+
+    @field_validator("event_date")
+    @classmethod
+    def _dated_in_the_past(cls, value: date) -> date:
+        return not_in_the_future(value)
 
 
 @router.post("/events/treatment/bulk")

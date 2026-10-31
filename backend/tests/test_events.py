@@ -61,7 +61,9 @@ def test_ordinary_events_leave_the_status_alone(client):
         body = {"tag": "A1", "kind": kind, "event_date": RECENTLY.isoformat()}
         if kind == "weight":
             body["value"] = 300
-        client.post("/api/events", json=body)
+        if kind == "movement":
+            body["location"] = "Bo-kamp"
+        assert client.post("/api/events", json=body).status_code == 200, kind
     assert client.get("/api/animals/A1").json()["status"] == "alive"
 
 
@@ -279,3 +281,47 @@ def test_locations_leave_out_animals_that_have_left_the_herd(client):
                                      "event_date": RECENTLY.isoformat()})
     assert client.get("/api/locations").json() == [
         {"location": "Bo-kamp", "animals": [{"tag": "A1", "name": ""}]}]
+
+
+# --- Dates that cannot be right -------------------------------------------
+
+def test_an_event_dated_in_the_future_is_refused(client):
+    """Kudde records what happened. A date next year is a picker scrolled to
+    the wrong year - and once saved it kept the animal off the needs-weighing
+    list for good, or in withdrawal for months. One day of grace, because the
+    phone's clock and the PC's are not the same clock."""
+    from datetime import date, timedelta
+    add_animal(client, "A1")
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    far = (date.today() + timedelta(days=40)).isoformat()
+    assert client.post("/api/events", json={"tag": "A1", "kind": "weight", "event_date": tomorrow,
+                                            "value": 300}).status_code == 200
+    r = client.post("/api/events", json={"tag": "A1", "kind": "weight", "event_date": far, "value": 300})
+    assert r.status_code == 422
+    assert "future" in r.text
+    assert client.post("/api/events/movement/bulk",
+                       json={"tags": ["A1"], "event_date": far, "location": "Bo-kamp"}).status_code == 422
+    assert client.post("/api/events/treatment/bulk",
+                       json={"tags": ["A1"], "event_date": far, "product": "X"}).status_code == 422
+    assert client.post("/api/calvings", json={"dam_tag": "A1", "event_date": far,
+                                              "calf": {"tag": "K1", "sex": "male"}}).status_code == 422
+    assert client.post("/api/animals", json={"tag": "B1", "sex": "female", "birth_date": far}).status_code == 422
+    assert client.patch("/api/animals/A1", json={"birth_date": far}).status_code == 422
+    # Only the one weighing, dated tomorrow, landed.
+    assert [e["kind"] for e in client.get("/api/animals/A1/events").json()] == ["weight"]
+    assert client.get("/api/animals").json()[0]["tag"] == "A1"
+
+
+def test_a_single_move_needs_a_camp_like_the_bulk_one(client):
+    """A movement with no camp moved the animal nowhere: the derived camp
+    skips an empty location, so Save said "Event recorded" and nothing
+    anyone could see changed. A birth may still be unplaced."""
+    add_animal(client, "A1")
+    for location in ("", "   "):
+        r = client.post("/api/events", json={"tag": "A1", "kind": "movement",
+                                             "event_date": RECENTLY.isoformat(), "location": location})
+        assert r.status_code == 422, r.text
+        assert "camp" in r.text
+    assert client.post("/api/events", json={"tag": "A1", "kind": "birth",
+                                            "event_date": RECENTLY.isoformat()}).status_code == 200
+    assert client.get("/api/animals/A1/events").json()[0]["kind"] == "birth"

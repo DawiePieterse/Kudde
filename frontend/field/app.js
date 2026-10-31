@@ -380,12 +380,44 @@ async function loadAnimals() {
     Kudde.setOffline(true);
     animals = await IDB.getCachedAnimals();
   } else {
-    animals = herd.list;
+    animals = herd.list.concat(await pendingAnimals(herd.list));
     Kudde.setOffline(false);
     await IDB.cacheAnimals(animals);
   }
   renderAnimalList();
   renderSummary();
+}
+
+// The animals this phone has added but the server has not been told about
+// yet, built from the outbox, so a fresh list from the server does not make
+// them vanish. The list is reloaded on startup, after a camp move and after
+// every sync pass - and a pass can end with an entry still queued (the
+// server answered 5xx, or 403 from the wrong network), at which point the
+// calf added at the kraal an hour ago disappeared from the phone until the
+// next pass landed it. Searching for it then found nothing, which reads as
+// "the record was lost". Shaped as confirmAddAnimal and confirmCalving shape
+// their own optimistic rows; an animal the server already has (the entry is
+// a timed-out-but-landed replay) is left to the server's copy.
+async function pendingAnimals(serverList) {
+  let pending;
+  try { pending = await IDB.getPending(); } catch (_) { return []; }
+  const known = new Set(serverList.map((a) => a.tag));
+  const extra = [];
+  for (const entry of pending) {
+    const p = entry.payload || {};
+    let row = null;
+    if (entry.kind === "animal") {
+      row = { ...p, status: "alive", camp: p.camp || null, last_weight: null, last_weight_date: null, _pending: true };
+    } else if (entry.kind === "calving" && p.calf) {
+      row = { ...p.calf, dam_tag: p.dam_tag, birth_date: p.event_date, status: "alive",
+              camp: p.camp || null, last_weight: null, last_weight_date: null, _pending: true };
+    }
+    if (row && row.tag && !known.has(row.tag)) {
+      known.add(row.tag);
+      extra.push(row);
+    }
+  }
+  return extra;
 }
 
 // ---------------------------------------------------------------------
@@ -500,7 +532,14 @@ async function openAnimalDetail(tag) {
           </div>`).join("")
       : `<div class="text-slate-400">No events recorded yet</div>`;
   } catch (e) {
-    if (!Kudde.isNetworkError(e)) throw e;
+    // Said in the panel, never thrown: this runs from a tap, so a throw
+    // went nowhere and left "Loading..." on screen for good. A server
+    // answering 500 (the database locked mid-update, say) looked like a
+    // history that never finishes loading.
+    if (!Kudde.isNetworkError(e)) {
+      eventsEl.innerHTML = `<div class="text-slate-400">${escapeHtml(Kudde.errorDetail(e, "Could not load the history"))}</div>`;
+      return;
+    }
     Kudde.setOffline(true);
     eventsEl.innerHTML = `<div class="text-slate-400">Offline - history unavailable</div>`;
   }
@@ -526,7 +565,10 @@ async function renderAnimalPhotos() {
       el.appendChild(thumb);
     }
   } catch (e) {
-    if (!Kudde.isNetworkError(e)) throw e;
+    if (!Kudde.isNetworkError(e)) {   // see openAnimalDetail: shown, not thrown
+      el.innerHTML = `<div class="text-slate-400 text-sm">${escapeHtml(Kudde.errorDetail(e, "Could not load the photos"))}</div>`;
+      return;
+    }
     Kudde.setOffline(true);
     el.innerHTML = `<div class="text-slate-400 text-sm">Offline - photos unavailable</div>`;
   }
@@ -563,7 +605,10 @@ function tagFromCode(text) {
   const raw = String(text || "").trim();
   if (/^https?:\/\//i.test(raw)) {
     const tail = raw.split(/[/?#]/).filter(Boolean).pop();
-    return tail ? decodeURIComponent(tail) : raw;
+    if (!tail) return raw;
+    // A stray "%" in a printed address throws here, and a throw from the
+    // scan callback left the camera sheet open, black, with no way on.
+    try { return decodeURIComponent(tail); } catch (_) { return tail; }
   }
   return raw;
 }
@@ -766,6 +811,14 @@ async function saveEvent(fields) {
 async function confirmEvent() {
   const eventDate = document.getElementById("eventDate").value;
   if (!eventDate) { Kudde.toast("Date is required"); return; }
+  if (Kudde.dateIsFuture(eventDate)) { Kudde.toast("That date is in the future"); return; }
+  // The server refuses a move with no camp (it would move the animal
+  // nowhere); asked here too, because offline the server is not there to
+  // say so and the entry would sit in the outbox only to come back refused.
+  if (activeEventKind === "movement" && !document.getElementById("eventLocation").value.trim()) {
+    Kudde.toast("Pick the camp it is moving to");
+    return;
+  }
 
   // Death and Sale take the animal out of the live herd (the server flips
   // its status), and the two buttons sit beside Birth and Move in the same
@@ -870,6 +923,7 @@ async function confirmCalving() {
   if (!dam) return;
   const eventDate = document.getElementById("calvingDate").value;
   if (!eventDate) { Kudde.toast("Date is required"); return; }
+  if (Kudde.dateIsFuture(eventDate)) { Kudde.toast("That date is in the future"); return; }
   const calfTag = document.getElementById("calfTag").value.trim();
   if (!calfTag) { Kudde.toast("The calf needs a tag number"); return; }
   if (animals.some((a) => a.tag.toLowerCase() === calfTag.toLowerCase())) { Kudde.toast(`Tag ${calfTag} is already in use`); return; }
@@ -992,6 +1046,7 @@ async function confirmMove() {
   if (!tags.length) { Kudde.toast("Select at least one animal"); return; }
   const eventDate = document.getElementById("moveDate").value;
   if (!eventDate) { Kudde.toast("Date is required"); return; }
+  if (Kudde.dateIsFuture(eventDate)) { Kudde.toast("That date is in the future"); return; }
   const location = document.getElementById("moveToLocation").value.trim();
   if (!location) { Kudde.toast("Pick the camp they are moving to"); return; }
   const campNote = KuddeCamps.newCampNote(location);
@@ -1058,6 +1113,7 @@ function openSessionSetup(kind) {
 function startSession() {
   const date = document.getElementById("sessionDate").value;
   if (!date) { Kudde.toast("Date is required"); return; }
+  if (Kudde.dateIsFuture(date)) { Kudde.toast("That date is in the future"); return; }
   session.date = date;
   session.note = document.getElementById("sessionNote").value.trim();
   if (session.kind === "treatment") {
@@ -1253,6 +1309,32 @@ async function reviewFailedEntries() {
 // for.
 let syncBusy = false;
 
+// Sends a queued new animal. Unlike every other kind, an animal carries no
+// capture id (the server has no column for one), so the server cannot tell
+// a replay from a second attempt at the same tag and answers 409 to both.
+// A request that timed out after the server had already written the animal
+// was therefore replayed, refused, and shown to the user as "New animal A1
+// was not saved: Tag A1 is already in use" - about an animal that was saved.
+// So a 409 is looked into: if the server's A1 is this A1 (same sex, breed,
+// name and birth date), the entry has landed and comes off the outbox. Only
+// a genuinely different animal under the same tag - another phone, both
+// offline - stays a refusal, with a reason that says so.
+async function postAnimalEntry(entry) {
+  const p = entry.payload || {};
+  try {
+    await Kudde.api("/api/animals", { method: "POST", body: p });
+  } catch (e) {
+    if (Kudde.isNetworkError(e) || !/^409\b/.test(String(e && e.message || ""))) throw e;
+    const theirs = await Kudde.api(`/api/animals/${encodeURIComponent(p.tag)}`);
+    const same = (a, b) => String(a || "") === String(b || "");
+    if (same(theirs.sex, p.sex) && same(theirs.breed, p.breed) && same(theirs.name, p.name)
+        && same(theirs.birth_date, p.birth_date)) {
+      return;   // our own earlier attempt landed
+    }
+    throw new Error(`409 {"detail": "Tag ${p.tag} already exists on the server as a different animal (${theirs.sex}${theirs.name ? `, ${theirs.name}` : ""})"}`);
+  }
+}
+
 async function trySync() {
   if (syncBusy) return;
   syncBusy = true;
@@ -1265,7 +1347,7 @@ async function trySync() {
     for (const entry of pending) {
       try {
         if (entry.kind === "animal") {
-          await Kudde.api("/api/animals", { method: "POST", body: entry.payload });
+          await postAnimalEntry(entry);
         } else if (entry.kind === "event") {
           await Kudde.api("/api/events", { method: "POST", body: entry.payload });
         } else if (entry.kind === "bulk_movement") {
@@ -1355,7 +1437,12 @@ async function init() {
   document.getElementById("cancelSessionBtn").addEventListener("click", closeSession);
   document.getElementById("startSessionBtn").addEventListener("click", startSession);
   document.getElementById("doneSessionBtn").addEventListener("click", closeSession);
-  document.getElementById("sessionSaveBtn").addEventListener("click", () => { saveSessionEntry().catch(() => {}); });
+  // Every Save goes through Kudde.oneAtATime: a double tap used to be two
+  // requests with two capture ids, which the server rightly kept as two
+  // weighings. The session's save is reached from its button and from
+  // Enter in either box, so the one guarded copy serves all three.
+  const saveSessionOnce = Kudde.oneAtATime(saveSessionEntry, document.getElementById("sessionSaveBtn"));
+  document.getElementById("sessionSaveBtn").addEventListener("click", () => { saveSessionOnce().catch(() => {}); });
   document.getElementById("sessionTag").addEventListener("input", syncSessionEntry);
   document.getElementById("sessionValue").addEventListener("input", syncSessionEntry);
   // Enter walks the two boxes the way a keypad user expects: tag, then kg,
@@ -1364,28 +1451,31 @@ async function init() {
     if (e.key !== "Enter") return;
     e.preventDefault();
     if (session.kind === "weight") document.getElementById("sessionValue").focus();
-    else saveSessionEntry().catch(() => {});
+    else saveSessionOnce().catch(() => {});
   });
   document.getElementById("sessionValue").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); saveSessionEntry().catch(() => {}); }
+    if (e.key === "Enter") { e.preventDefault(); saveSessionOnce().catch(() => {}); }
   });
   document.getElementById("syncStatus").addEventListener("click", () => { reviewFailedEntries().catch(() => {}); });
   document.getElementById("addAnimalBtn").addEventListener("click", openAddAnimal);
   document.getElementById("newFemaleBtn").addEventListener("click", () => setNewSex("female"));
   document.getElementById("newMaleBtn").addEventListener("click", () => setNewSex("male"));
   document.getElementById("cancelAddAnimalBtn").addEventListener("click", closeAddAnimal);
-  document.getElementById("confirmAddAnimalBtn").addEventListener("click", confirmAddAnimal);
+  document.getElementById("confirmAddAnimalBtn").addEventListener("click",
+    Kudde.oneAtATime(confirmAddAnimal, document.getElementById("confirmAddAnimalBtn")));
   document.getElementById("closeDetailBtn").addEventListener("click", closeAnimalDetail);
   document.getElementById("photoViewer").addEventListener("click", closePhotoViewer);
   document.getElementById("scanSearchBtn").addEventListener("click", () => { openScanner("search").catch(() => {}); });
   document.getElementById("scanSessionBtn").addEventListener("click", () => { openScanner("session").catch(() => {}); });
   document.getElementById("cancelScanBtn").addEventListener("click", closeScanner);
   document.getElementById("cancelEventBtn").addEventListener("click", closeEventModal);
-  document.getElementById("confirmEventBtn").addEventListener("click", confirmEvent);
+  document.getElementById("confirmEventBtn").addEventListener("click",
+    Kudde.oneAtATime(confirmEvent, document.getElementById("confirmEventBtn")));
   document.getElementById("moveCampBtn").addEventListener("click", openMoveModal);
   document.getElementById("cancelMoveBtn").addEventListener("click", closeMoveModal);
   document.getElementById("backMoveBtn").addEventListener("click", backToMoveLocations);
-  document.getElementById("confirmMoveBtn").addEventListener("click", confirmMove);
+  document.getElementById("confirmMoveBtn").addEventListener("click",
+    Kudde.oneAtATime(confirmMove, document.getElementById("confirmMoveBtn")));
 
   document.querySelectorAll("#animalDetailModal .action-btn[data-kind]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -1394,7 +1484,8 @@ async function init() {
     });
   });
   document.getElementById("cancelCalvingBtn").addEventListener("click", closeCalving);
-  document.getElementById("confirmCalvingBtn").addEventListener("click", () => { confirmCalving().catch(() => {}); });
+  const confirmCalvingOnce = Kudde.oneAtATime(confirmCalving, document.getElementById("confirmCalvingBtn"));
+  document.getElementById("confirmCalvingBtn").addEventListener("click", () => { confirmCalvingOnce().catch(() => {}); });
   document.getElementById("calfFemaleBtn").addEventListener("click", () => setCalfSex("female"));
   document.getElementById("calfMaleBtn").addEventListener("click", () => setCalfSex("male"));
 

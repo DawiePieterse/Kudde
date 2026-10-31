@@ -2,7 +2,7 @@
 // network blip. Unlike the field app there's no offline data queue here -
 // see app.js for why - this only caches the UI shell itself.
 const CACHE_PREFIX = "kudde-admin-";
-const CACHE = "kudde-admin-v14";
+const CACHE = "kudde-admin-v15";
 const REVALIDATE_TIMEOUT_MS = 10000;
 const SHELL = [
   "./",

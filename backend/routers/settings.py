@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends
+from pydantic import Field
 from sqlmodel import Session, SQLModel
 
 from db import get_session
@@ -20,8 +21,14 @@ class FarmUpdate(SQLModel):
     farm_name: str = ""
     farmer_name: str = ""
     phone_number: str = ""
-    gps_lat: Optional[float] = None
-    gps_lng: Optional[float] = None
+    # Bounded, because a coordinate outside the globe is not refused by
+    # anything downstream: Open-Meteo answers it with an error that
+    # weather.py swallows, so a latitude typed as 338.9 saved fine and every
+    # event from then on simply had no weather, with nothing on any screen
+    # to say why. The Admin boxes carry the same min/max, but parseFloat
+    # does not read them.
+    gps_lat: Optional[float] = Field(default=None, ge=-90, le=90)
+    gps_lng: Optional[float] = Field(default=None, ge=-180, le=180)
 
 
 def _get_or_create(session: Session) -> Farm:

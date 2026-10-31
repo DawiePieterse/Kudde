@@ -12,7 +12,7 @@ import pytest
 
 import farmweather
 import weather
-from tests.conftest import RECENTLY
+from tests.conftest import LONG_AGO, RECENTLY
 
 
 @pytest.fixture()
@@ -177,3 +177,73 @@ def test_a_camp_move_with_no_farm_position_still_moves_the_camp(client, looked_u
     assert r.status_code == 200, r.text
     assert r.json()[0]["weather_temp_max"] is None
     assert looked_up == []
+
+
+# --- one answer per day, not one per animal ----------------------------------
+
+def test_a_days_weather_is_looked_up_once_for_the_whole_herd(client, looked_up):
+    """A weigh session is forty head on one day, and a calving records two
+    or three events on one date. Every one of them used to go out to
+    Open-Meteo inside the request the phone was waiting on."""
+    _at(client)
+    for tag in ("A1", "A2", "A3"):
+        client.post("/api/animals", json={"tag": tag, "sex": "female"})
+    for tag in ("A1", "A2", "A3"):
+        r = client.post("/api/events", json={"tag": tag, "kind": "weight",
+                                             "event_date": RECENTLY.isoformat(), "value": 300})
+        assert r.json()["weather_temp_max"] == 31.2
+    r = client.post("/api/calvings", json={"dam_tag": "A1", "event_date": RECENTLY.isoformat(),
+                                           "calf": {"tag": "K1", "sex": "male"}, "camp": "Bo-kamp"})
+    assert r.status_code == 200, r.text
+    assert r.json()["dam_event"]["weather_temp_max"] == 31.2
+    assert looked_up == [(-33.9249, 18.4241, RECENTLY)]
+    # A different day, or a moved farm, is a different question.
+    client.post("/api/events", json={"tag": "A2", "kind": "treatment", "event_date": LONG_AGO.isoformat()})
+    _at(client, lat=-25.0)
+    client.post("/api/events", json={"tag": "A2", "kind": "treatment", "event_date": RECENTLY.isoformat()})
+    assert looked_up == [(-33.9249, 18.4241, RECENTLY), (-33.9249, 18.4241, LONG_AGO), (-25.0, 18.4241, RECENTLY)]
+
+
+def test_a_failed_lookup_is_not_retried_on_every_save(client, monkeypatch):
+    """With no internet at the farm each lookup waits out its whole timeout,
+    so a dead connection cost one slow save per animal. A miss is remembered
+    briefly, then asked again - the connection may be back."""
+    calls = []
+    answer = {"weather": None}
+
+    def fake(lat, lng, on):
+        calls.append(on)
+        return answer["weather"]
+
+    monkeypatch.setattr(farmweather, "fetch_daily_weather", fake)
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(farmweather.time, "monotonic", lambda: clock["now"])
+    _at(client)
+    for tag in ("A1", "A2"):
+        client.post("/api/animals", json={"tag": tag, "sex": "female"})
+        r = client.post("/api/events", json={"tag": tag, "kind": "treatment", "event_date": RECENTLY.isoformat()})
+        assert r.status_code == 200 and r.json()["weather_temp_max"] is None
+    assert len(calls) == 1
+    # Once the miss has aged out, the next save asks again and gets the answer.
+    clock["now"] += farmweather.KEEP_MISS_S + 1
+    answer["weather"] = weather.DailyWeather(temp_max=31.2, temp_min=12.0, precipitation=4.5)
+    r = client.post("/api/events", json={"tag": "A1", "kind": "treatment", "event_date": RECENTLY.isoformat()})
+    assert r.json()["weather_temp_max"] == 31.2 and len(calls) == 2
+
+
+def test_the_lookup_gives_up_before_the_phone_does():
+    """The lookup runs inside the request that records the event, and the
+    field app gives up on a request after 8 seconds and queues it. A longer
+    timeout here made every save on a farm with no internet look like an
+    offline save - while the server had in fact recorded it."""
+    assert weather._TIMEOUT < 8
+
+
+def test_a_farm_position_off_the_globe_is_refused(client):
+    """Nothing downstream catches it: Open-Meteo answers with an error that
+    weather.py swallows, so every event from then on simply had no weather."""
+    for lat, lng in ((338.9, 18.4), (-33.9, 181.0), (-91.0, 18.4)):
+        r = client.put("/api/farm", json={"gps_lat": lat, "gps_lng": lng})
+        assert r.status_code == 422, (lat, lng)
+    assert client.get("/api/farm").json()["gps_lat"] is None
+    assert client.put("/api/farm", json={"gps_lat": -33.9, "gps_lng": 18.4}).status_code == 200

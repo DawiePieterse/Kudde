@@ -10,6 +10,7 @@ from db import get_session
 from farmweather import stamp_weather, weather_for
 from herd import herd_context
 from models import Animal, AnimalSex, AnimalStatus, Event, EventKind
+from routers.events import not_in_the_future
 from tags import normalise_tag
 
 router = APIRouter(prefix="/api/animals", tags=["animals"])
@@ -54,6 +55,13 @@ class AnimalCreate(SQLModel):
     def _tidy_parent_tag(cls, value: Optional[str]) -> Optional[str]:
         return normalise_tag(value)
 
+    # An animal born next year reads as a calf for ever (classes.py counts
+    # days from its birth date), so the same rule the events apply.
+    @field_validator("birth_date")
+    @classmethod
+    def _born_already(cls, value: Optional[date]) -> Optional[date]:
+        return not_in_the_future(value, "birth date")
+
 
 class AnimalUpdate(SQLModel):
     name: Optional[str] = None
@@ -69,6 +77,11 @@ class AnimalUpdate(SQLModel):
     @classmethod
     def _tidy_parent_tag(cls, value: Optional[str]) -> Optional[str]:
         return normalise_tag(value)
+
+    @field_validator("birth_date")
+    @classmethod
+    def _born_already(cls, value: Optional[date]) -> Optional[date]:
+        return not_in_the_future(value, "birth date")
 
 
 @router.get("")
