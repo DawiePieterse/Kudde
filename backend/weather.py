@@ -22,7 +22,14 @@ _ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 _DAILY_FIELDS = "temperature_2m_max,temperature_2m_min,precipitation_sum"
 _FORECAST_PAST_LIMIT = timedelta(days=92)
 _FORECAST_FUTURE_LIMIT = timedelta(days=16)
-_TIMEOUT = 10
+# Well under the field app's 8 second deadline (Kudde.NETWORK_TIMEOUT_MS).
+# This lookup runs inside the request that records the event, so at 10
+# seconds a farm PC whose internet route was down - Tailscale still carries
+# the phones over the LAN - made EVERY save time out on the phone and land
+# in the outbox as "will sync when online", while the server had in fact
+# recorded it. httpx applies this to each phase (connect, read) separately,
+# so the worst case is still inside the deadline with room for the database.
+_TIMEOUT = 4
 
 
 @dataclass

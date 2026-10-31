@@ -17,6 +17,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import field_validator
 from sqlmodel import Session, SQLModel, select
 
 from campnames import ensure_camp
@@ -25,6 +26,7 @@ from farmweather import stamp_weather, weather_for
 from herd import animal_by_tag
 from models import Animal, AnimalSex, Event, EventKind
 from routers.animals import AnimalCreate, new_animal
+from routers.events import not_in_the_future
 from tags import normalise_tag
 
 router = APIRouter(prefix="/api/calvings", tags=["calvings"])
@@ -45,6 +47,11 @@ class CalvingCreate(SQLModel):
     # Same contract as EventCreate.client_uuid: the phone's id for this
     # capture, so a replay records once.
     client_uuid: Optional[str] = None
+
+    @field_validator("event_date")
+    @classmethod
+    def _dated_in_the_past(cls, value: date) -> date:
+        return not_in_the_future(value)
 
 
 def _calf_uuid(client_uuid: str) -> str:

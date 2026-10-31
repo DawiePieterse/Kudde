@@ -756,6 +756,16 @@ Saving:
 A **Weight** event with the kg box empty is refused rather than saved
 blank - see [The six event kinds](#the-six-event-kinds).
 
+Two more things are refused rather than saved, on the phone and by the
+server: a **date more than a day ahead** (a picker scrolled to the wrong
+year used to keep an animal off the needs-weighing list, or in
+withdrawal, for months) and a **Move with no camp** chosen (it moved the
+animal nowhere). Offline, the phone says so at once instead of queueing a
+record the server would later refuse.
+
+A **Save tapped twice** on a slow signal is one save, not two: the button
+is held until the first answer comes back.
+
 ### Recording a calving
 
 Standing at a cow that has calved, tap her, then **Calved**. One screen

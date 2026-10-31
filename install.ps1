@@ -129,6 +129,34 @@ try {
     $gitCmd = Get-Command git -ErrorAction SilentlyContinue
     if ($gitCmd) {
         Write-Ok "Found Git at $($gitCmd.Source)"
+
+        # The server runs as SYSTEM, but this folder belongs to whoever cloned
+        # it, and Git refuses a repository owned by another user ("dubious
+        # ownership"). So /api/version's git describe came back empty and the
+        # tag read null - on the Admin header, and to Boord Monitor, which
+        # asks every app what release it is on. Trust this one folder,
+        # machine-wide so SYSTEM reads it too; the owner is the PC's admin
+        # account, which already controls everything here. The same block is
+        # in Boord Monitor's, Boord Owner's and Boord Notes' installers.
+        # Not fatal: the tag is information, never up/down.
+        try {
+            $safeDir = $RepoRoot.TrimEnd('\') -replace '\\', '/'
+            $trusted = @(& git config --system --get-all safe.directory) | ForEach-Object { $_.Trim() }
+            if ($trusted -contains $safeDir -or $trusted -contains "*") {
+                Write-Ok "Git already trusts $safeDir for SYSTEM"
+            } else {
+                & git config --system --add safe.directory $safeDir
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Ok "Git now trusts $safeDir for SYSTEM (safe.directory)"
+                } else {
+                    Write-Warn "Could not add $safeDir to Git's safe.directory. The server runs,"
+                    Write-Warn "but its version shows no tag. Fix by hand, as administrator:"
+                    Write-Warn "    git config --system --add safe.directory $safeDir"
+                }
+            }
+        } catch {
+            Write-Warn "Could not check Git's safe.directory: $_"
+        }
     } else {
         Write-Warn "Git is not installed. The server itself will still run, but"
         Write-Warn "update_server.bat cannot fetch releases without it."

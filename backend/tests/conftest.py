@@ -86,6 +86,13 @@ def client():
     # photo files of the first animal of the last one.
     shutil.rmtree(db.PHOTOS_DIR, ignore_errors=True)
     os.makedirs(db.PHOTOS_DIR, exist_ok=True)
+
+    # And no remembered weather: farmweather keeps the day's answer for the
+    # farm's position in process memory, and the suite's farms all sit at
+    # the same coordinates, so one test's stubbed sunshine would otherwise
+    # be the next test's answer.
+    import farmweather
+    farmweather._cache.clear()
     with TestClient(FromPeer(main.app)) as c:  # startup: run_migrations
         yield c
 

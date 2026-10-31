@@ -414,6 +414,12 @@ async function addEvent() {
   const kind = document.getElementById("newEventKind").value;
   const eventDate = document.getElementById("newEventDate").value;
   if (!eventDate) { Kudde.toast("Date is required"); return; }
+  if (Kudde.dateIsFuture(eventDate)) { Kudde.toast("That date is in the future"); return; }
+  // A move with no camp moves the animal nowhere; the server refuses it.
+  if (kind === "movement" && !document.getElementById("newEventLocation").value.trim()) {
+    Kudde.toast("Pick the camp it is moving to");
+    return;
+  }
 
   const value = kind === "weight"
     ? (parseFloat(document.getElementById("newEventValue").value) || null) : null;
@@ -831,6 +837,7 @@ async function confirmTreat() {
   if (!tags.length) { Kudde.toast("Select at least one animal"); return; }
   const eventDate = document.getElementById("treatDate").value;
   if (!eventDate) { Kudde.toast("Date is required"); return; }
+  if (Kudde.dateIsFuture(eventDate)) { Kudde.toast("That date is in the future"); return; }
   const treatment = KuddeProducts.read(GROUP_TREATMENT_INPUTS());
   if (!treatment) return;
   if (!treatment.product) { Kudde.toast("Say what the product is"); return; }
@@ -868,6 +875,7 @@ async function confirmMove() {
   if (!tags.length) { Kudde.toast("Select at least one animal"); return; }
   const eventDate = document.getElementById("moveDate").value;
   if (!eventDate) { Kudde.toast("Date is required"); return; }
+  if (Kudde.dateIsFuture(eventDate)) { Kudde.toast("That date is in the future"); return; }
   const location = document.getElementById("moveToLocation").value.trim();
   if (!location) { Kudde.toast("Pick the camp they are moving to"); return; }
   const campNote = KuddeCamps.newCampNote(location);
@@ -908,12 +916,18 @@ async function init() {
   document.getElementById("fSex").addEventListener("change", syncCastratedRow);
   document.getElementById("addAnimalBtn").addEventListener("click", openAddAnimal);
   document.getElementById("cancelAnimalBtn").addEventListener("click", closeAnimalModal);
-  document.getElementById("saveAnimalBtn").addEventListener("click", saveAnimal);
-  document.getElementById("addEventBtn").addEventListener("click", addEvent);
+  // Saves go through Kudde.oneAtATime (see api.js): a double click on
+  // Record event was two identical events, and Enter plus the click on Add
+  // camp was a 409 toast for a camp that had just been added.
+  document.getElementById("saveAnimalBtn").addEventListener("click",
+    Kudde.oneAtATime(saveAnimal, document.getElementById("saveAnimalBtn")));
+  document.getElementById("addEventBtn").addEventListener("click",
+    Kudde.oneAtATime(addEvent, document.getElementById("addEventBtn")));
   document.getElementById("newEventKind").addEventListener("change", syncEventForm);
   document.getElementById("newEventValue").addEventListener("input", showWeightHint);
-  document.getElementById("addCampBtn").addEventListener("click", addCamp);
-  document.getElementById("newCampName").addEventListener("keydown", (e) => { if (e.key === "Enter") addCamp(); });
+  const addCampOnce = Kudde.oneAtATime(addCamp, document.getElementById("addCampBtn"));
+  document.getElementById("addCampBtn").addEventListener("click", addCampOnce);
+  document.getElementById("newCampName").addEventListener("keydown", (e) => { if (e.key === "Enter") addCampOnce(); });
   document.getElementById("useMyLocationBtn").addEventListener("click", useCurrentLocation);
   document.getElementById("saveFarmBtn").addEventListener("click", saveFarm);
   document.getElementById("fGpsLat").addEventListener("change", syncMarkerFromInputs);
@@ -921,10 +935,12 @@ async function init() {
   document.getElementById("moveCampBtn").addEventListener("click", () => openGroupModal("move"));
   document.getElementById("treatGroupBtn").addEventListener("click", () => openGroupModal("treat"));
   document.getElementById("backTreatBtn").addEventListener("click", backToMoveLocations);
-  document.getElementById("confirmTreatBtn").addEventListener("click", confirmTreat);
+  document.getElementById("confirmTreatBtn").addEventListener("click",
+    Kudde.oneAtATime(confirmTreat, document.getElementById("confirmTreatBtn")));
   document.getElementById("cancelMoveBtn").addEventListener("click", closeMoveModal);
   document.getElementById("backMoveBtn").addEventListener("click", backToMoveLocations);
-  document.getElementById("confirmMoveBtn").addEventListener("click", confirmMove);
+  document.getElementById("confirmMoveBtn").addEventListener("click",
+    Kudde.oneAtATime(confirmMove, document.getElementById("confirmMoveBtn")));
   document.getElementById("photoViewer").addEventListener("click", () => {
     document.getElementById("photoViewer").classList.add("hidden");
     document.getElementById("photoViewer").classList.remove("flex");
