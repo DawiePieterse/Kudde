@@ -50,8 +50,9 @@ def test_a_paired_field_device_is_let_in_from_the_internet(farm_secret):
     assert through_tunnel(cookie("field")).status_code == 200
 
 
-def test_a_paired_admin_device_is_let_in_too(farm_secret):
-    assert through_tunnel(cookie("admin")).status_code == 200
+@pytest.mark.parametrize("role", ["admin", "owner"])
+def test_a_paired_admin_or_owner_device_is_let_in_too(farm_secret, role):
+    assert through_tunnel(cookie(role)).status_code == 200
 
 
 def test_an_unpaired_device_is_refused_and_told_about_pairing(farm_secret):

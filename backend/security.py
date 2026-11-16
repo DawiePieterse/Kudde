@@ -155,8 +155,8 @@ NOT_PAIRED_MESSAGE = (
 # Admin share almost the whole API here, so there is no narrower slice to
 # give a field device than an admin gets. "dashboard" is deliberately absent:
 # that is the farm manager's view of Boord's harvest, and says nothing about
-# who may see the herd.
-_PAIRED_ROLES = ("admin", "field")
+# who may see the herd. "owner" is everything the admin is, and more.
+_PAIRED_ROLES = ("admin", "owner", "field")
 
 
 def paired_device(request: Request) -> Optional[dict]:
