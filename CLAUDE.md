@@ -77,6 +77,8 @@ CI (`.github/workflows/tests.yml`) runs pytest on Python 3.9, the floor `install
   - That includes the PC's own console, because AnyDesk is how it is reached.
   - Only `/healthz` answers off Tailscale. It says nothing about the herd, and the installer's post-install check needs it.
   - `KUDDE_ALLOW_LOOPBACK=1` is for local development only. The farm's launcher never sets it.
+  - **A paired device is the second way in** (`device_auth.py`, not yet in a release). Boord pairs a device and sets a signed `boord_device` cookie; Kudde only checks it, admits the `admin` and `field` roles on any network, and renews it in use. The secret and `device_revoked.txt` are in Boord's `data/` (`BOORD_AUTH_DIR` overrides). No secret file means no cookie is believed. `device_auth.py` is meant to be the same file in every app.
+  - A request carrying Cloudflare's headers (`cf-ray`, `cf-connecting-ip`) is never treated as Tailscale: the tunnel's connector is on loopback too, so its forwarding headers are a stranger's to type.
   - The server binds 127.0.0.1. Never bind 0.0.0.0.
 - **Field capture is offline-first.** `frontend/field/idb.js` holds an outbox of creates and events, plus a cached animal list so the herd can be browsed offline.
   - Each request carries a phone-made `client_uuid`, and the server is idempotent on it, so a replay is harmless.

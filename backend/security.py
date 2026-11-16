@@ -12,6 +12,13 @@ herd. A loopback exemption for anything more is one that any AnyDesk
 session to this PC would inherit for free, and AnyDesk is exactly how a
 farm server like this is normally reached.
 
+A SECOND WAY IN, beside Tailscale: a device Boord has paired carries a
+signed cookie (device_auth.py), and that is admitted on whatever network it
+arrives - which is what lets a phone reach Kudde through the Cloudflare
+Tunnel without the Tailscale app. Either is enough; Tailscale works exactly
+as it did. A farm that has paired nothing has no secret file, no cookie is
+believed, and everything below is still the whole story.
+
 TWO SIGNALS, because only one of them is certain:
 
   1. The peer address is a Tailscale one. `tailscale serve` proxies from the
@@ -35,6 +42,8 @@ import os
 from typing import Optional, Union
 
 from fastapi import HTTPException, Request, status
+
+import device_auth
 
 _IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
 
@@ -99,8 +108,29 @@ def _asks_for_a_tailnet_site(request: Request) -> bool:
     return False
 
 
+# Cloudflare puts these on every request it passes to us, and a visitor
+# cannot take them off again - which is the whole use of them here.
+_CLOUDFLARE_HEADERS = ("cf-ray", "cf-connecting-ip")
+
+
+def came_through_cloudflare(request: Request) -> bool:
+    """Whether this request came in from the internet through the Cloudflare
+    Tunnel rather than over the tailnet.
+
+    The tunnel's connector runs on this PC, so its requests land on loopback
+    exactly as `tailscale serve`'s do - and everything is_tailscale_client
+    reads on a loopback request (X-Forwarded-For, Host, X-Forwarded-Host) is
+    then something a stranger on the internet typed. Without this, sending
+    `X-Forwarded-Host: anything.ts.net` through the tunnel would be the way
+    in. A tailnet device that adds these headers itself only locks itself
+    out."""
+    return any(header in request.headers for header in _CLOUDFLARE_HEADERS)
+
+
 def is_tailscale_client(request: Request) -> bool:
     """True when this request arrived over Tailscale (or the dev bypass)."""
+    if came_through_cloudflare(request):
+        return False
     address = _peer_address(request)
     if address is None:
         return False
@@ -111,6 +141,34 @@ def is_tailscale_client(request: Request) -> bool:
             return True
         return _asks_for_a_tailnet_site(request)
     return False
+
+
+# What a device reaching us any other way is told. Through the tunnel the
+# Tailscale message would send somebody looking for an app they were never
+# meant to need.
+NOT_PAIRED_MESSAGE = (
+    "This device is not paired with the farm yet - ask the office to add it "
+    "from Boord Admin, then open Kudde again"
+)
+
+# The paired-device roles this app admits (see device_auth.py). Field and
+# Admin share almost the whole API here, so there is no narrower slice to
+# give a field device than an admin gets. "dashboard" is deliberately absent:
+# that is the farm manager's view of Boord's harvest, and says nothing about
+# who may see the herd.
+_PAIRED_ROLES = ("admin", "field")
+
+
+def paired_device(request: Request) -> Optional[dict]:
+    """The cookie payload of a paired device this app admits, or None."""
+    payload = device_auth.verify(request.cookies.get(device_auth.COOKIE_NAME, ""))
+    if payload is None or payload["role"] not in _PAIRED_ROLES:
+        return None
+    return payload
+
+
+def refusal_message(request: Request) -> str:
+    return NOT_PAIRED_MESSAGE if came_through_cloudflare(request) else TAILSCALE_ONLY_MESSAGE
 
 
 def require_tailscale_client(request: Request) -> None:

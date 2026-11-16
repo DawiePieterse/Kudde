@@ -7,7 +7,8 @@ from fastapi.staticfiles import StaticFiles
 
 from migrate import run_migrations
 from routers import animals, calvings, camps, dashboard, events, export, photos, settings, version
-from security import TAILSCALE_ONLY_MESSAGE, is_tailscale_client
+import device_auth
+from security import is_tailscale_client, paired_device, refusal_message
 from version import prime as prime_version
 
 app = FastAPI(title="Kudde")
@@ -45,8 +46,9 @@ def healthz():
 @app.middleware("http")
 async def kudde_is_not_on_the_farm_wifi(request: Request, call_next):
     """Every request - Field and Admin alike - is refused unless it arrived
-    over Tailscale. See security.py for what "arrived over Tailscale" means
-    and why it takes two signals to tell.
+    over Tailscale or came from a paired device. See security.py for what
+    "arrived over Tailscale" means and why it takes two signals to tell, and
+    device_auth.py for what a paired device is.
 
     A blanket check rather than one dependency per route: Field and Admin
     share almost the entire API (list/add animals, record events, the
@@ -56,9 +58,16 @@ async def kudde_is_not_on_the_farm_wifi(request: Request, call_next):
     """
     if request.url.path == _HEALTH_PATH:
         return await call_next(request)
-    if not is_tailscale_client(request):
-        return PlainTextResponse(TAILSCALE_ONLY_MESSAGE, status_code=403)
-    return await call_next(request)
+    device = paired_device(request)
+    if device is None and not is_tailscale_client(request):
+        return PlainTextResponse(refusal_message(request), status_code=403)
+    response = await call_next(request)
+    # A device still in use is remembered for another full term, so no phone
+    # is logged out in the middle of a season for having been paired a year
+    # ago.
+    if device is not None and device_auth.needs_renewal(device):
+        device_auth.renew(response, device)
+    return response
 
 
 @app.on_event("startup")
