@@ -18,7 +18,11 @@ on:
 
 jobs:
   backend:
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest. When that label moved to Ubuntu 26.04 (Nov
+    # 2026) setup-python had no 3.9 build for it, and the 3.9 job died in
+    # seconds before a single test ran - the one job that guards the farm's
+    # floor. Move this forward only together with that floor in install.ps1.
+    runs-on: ubuntu-24.04
     strategy:
       # Both versions always report. Cancelling the sibling on the first
       # failure hides whether a break is version-specific, which is the one
